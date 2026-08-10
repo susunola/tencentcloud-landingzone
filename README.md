@@ -1,6 +1,6 @@
 # tencentcloud-landingzone
 
-基于腾讯云控制中心（Control Center，产品文档 [1220/57785](https://intl.cloud.tencent.com/zh/document/product/1220/57785)）Landing Zone 最佳实践，用 Terraform 将多账号云环境的**组织架构、核心账号、财务、身份权限、防护规则、账号基线**一次性落地，可版本化、可审计、可重复执行。
+基于腾讯云控制中心（Control Center，产品文档 [1220/57785](https://intl.cloud.tencent.com/zh/document/product/1220/57785)）Landing Zone 最佳实践，用 Terraform 将多账号云环境的**组织架构、核心账号、财务、身份权限、防护规则、账号基线**一次性落地，可版本化、可审计、可重复执行。设计借鉴 [AWS Landing Zone Accelerator](https://github.com/awslabs/landing-zone-accelerator-on-aws)：配置驱动、分阶段部署、部署前校验、持续治理。
 
 ## 架构
 
@@ -56,6 +56,8 @@
 | `baselines.tf` | 账号工厂基线配置与批量应用 |
 | `variables.tf` / `outputs.tf` | 输入变量与输出 |
 | `terraform.tfvars.example` | 变量示例 |
+| `scripts/validate-config.py` | 配置预检：apply 前校验 tfvars 引用一致性（借鉴 LZA config validation） |
+| `.github/workflows/terraform-ci.yml` | CI：fmt + validate + 预检 + 可选 plan |
 
 ## 前置条件
 
@@ -64,6 +66,7 @@
 - 配置腾讯云 API 凭证（二选一）：
   - 环境变量：`export TENCENTCLOUD_SECRET_ID=... TENCENTCLOUD_SECRET_KEY=...`
   - `terraform.tfvars`：复制 `terraform.tfvars.example` 并填写
+- 运行预检脚本需 `python3` + `python-hcl2`：`pip install python-hcl2`（CI 已自动安装）
 
 ## 快速开始
 
@@ -113,6 +116,25 @@ enable_baselines        = false
 enable_login_permission = false
 enable_auditor_policy   = false
 ```
+
+## 分阶段部署
+
+借鉴 LZA 的 staged deployment：首次落地建议按依赖顺序分阶段 apply，降低单次变更面、便于逐段验证：
+
+| 阶段 | 内容 | 命令 |
+|---|---|---|
+| 1 组织与账号 | 开通组织、部门、核心/业务账号 | `terraform apply -target=tencentcloud_organization_instance.this -target=tencentcloud_organization_org_node.this -target=tencentcloud_organization_org_member.core -target=tencentcloud_organization_org_member.business` |
+| 2 身份与防护 | 身份（权限集）、成员策略、登录授权、SCP | `terraform apply -target=tencentcloud_organization_org_identity.* -target=tencentcloud_organization_org_member_policy_attachment.* -target=tencentcloud_organization_org_member_auth_identity_attachment.* -target=tencentcloud_organization_org_manage_policy.*` |
+| 3 基线 | 账号工厂基线配置 + 批量应用 | `terraform apply -target=tencentcloud_controlcenter_account_factory_baseline_config.default -target=tencentcloud_batch_apply_account_baselines.all` |
+| 4 收尾 | 全量核对，补遗漏 | `terraform apply` |
+
+> 每个阶段结束后 `terraform plan` 检查无意外变更再进入下一阶段。账号较多时建议先用 `-target` 试点 1-2 个业务账号验证基线效果，再全量 apply。
+
+## 持续治理
+
+- **CI 校验**：`.github/workflows/terraform-ci.yml` 在 PR / push 时自动执行 `fmt -check`、`validate`、配置预检；在仓库 Settings → Secrets 配置 `TENCENTCLOUD_SECRET_ID` / `TENCENTCLOUD_SECRET_KEY` 后，plan 步骤自动启用（不配置则跳过）。
+- **漂移检测**：Landing Zone 的合规性会随控制台人工操作漂移（如手工改了部门、绑定了策略）。建议定期执行 `terraform plan` 并与 CI 对比，发现 drift 后 `terraform apply` 收敛。
+- **预检脚本**：apply 前先跑 `python3 scripts/validate-config.py`，快速发现部门引用、财务权限、绑定目标等配置错误，避免 plan 到中途才报错。
 
 ## 基线项说明
 

@@ -1,0 +1,40 @@
+name: terraform-ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  validate:
+    name: fmt / validate / preflight
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.5.7
+
+      - name: Setup python-hcl2
+        run: pip install python-hcl2
+
+      - name: terraform fmt
+        run: terraform fmt -check -recursive
+
+      - name: terraform init
+        run: terraform init -input=false
+
+      - name: terraform validate
+        run: terraform validate
+
+      - name: preflight config check
+        run: python3 scripts/validate-config.py
+
+      # 配置仓库 Secrets: TENCENTCLOUD_SECRET_ID / TENCENTCLOUD_SECRET_KEY 后自动启用 plan
+      - name: terraform plan
+        if: ${{ secrets.TENCENTCLOUD_SECRET_ID != '' && secrets.TENCENTCLOUD_SECRET_KEY != '' }}
+        env:
+          TENCENTCLOUD_SECRET_ID: ${{ secrets.TENCENTCLOUD_SECRET_ID }}
+          TENCENTCLOUD_SECRET_KEY: ${{ secrets.TENCENTCLOUD_SECRET_KEY }}
+        run: terraform plan -input=false -no-color
