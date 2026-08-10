@@ -38,7 +38,14 @@ output "identity_ids" {
   }
 }
 
+output "manage_policy_ids" {
+  description = "防护规则（SCP）策略 ID，key 对应 guardrail_policies 中的策略名"
+  value = {
+    for k, p in tencentcloud_organization_org_manage_policy.this : k => p.policy_id
+  }
+}
+
 output "baseline_id" {
-  description = "账号工厂基线配置 ID"
-  value       = tencentcloud_controlcenter_account_factory_baseline_config.default.id
+  description = "账号工厂基线配置 ID（enable_baselines = false 时为 null）"
+  value       = try(tencentcloud_controlcenter_account_factory_baseline_config.default[0].id, null)
 }

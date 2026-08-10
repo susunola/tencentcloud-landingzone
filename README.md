@@ -92,9 +92,31 @@ terraform apply
 
 按需修改 `variables.tf` 中的 `departments` / `core_accounts` / `business_accounts` 即可调整结构。
 
+## 扩展与裁剪
+
+Landing Zone 设计为数据驱动 + 模块开关，**改 `terraform.tfvars` 即可完成扩展与裁剪，无需改代码**：
+
+| 需求 | 做法 |
+|---|---|
+| 整体裁剪某个模块 | `enable_guardrails` / `enable_baselines` / `enable_login_permission` / `enable_auditor_policy` 置 `false` |
+| 增删部门 / 账号 | 改 `departments` / `core_accounts` / `business_accounts` |
+| 增删防护规则（SCP） | 改 `guardrail_policies` map（含绑定目标 `bound_to`） |
+| 增删基线项 | 改 `baseline_config_items` 列表 |
+| 调整财务权限 / 代付 | 改 `member_permission_ids` / `pay_uin` |
+| 增删身份（权限集） | 复制/删除 `identities.tf` 中的身份资源块及对应绑定 |
+
+极端裁剪示例（仅组织 + 账号，不启用任何治理模块）：
+
+```hcl
+enable_guardrails       = false
+enable_baselines        = false
+enable_login_permission = false
+enable_auditor_policy   = false
+```
+
 ## 基线项说明
 
-`baselines.tf` 默认配置了两个账号工厂基线项：
+`baselines.tf` 由 `var.baseline_config_items` 驱动，默认包含两个账号工厂基线项（可增删）：
 
 - `TCC-AF_PRESET_TAG`：预设标签基线，给所有账号统一打管理标签
 - `TCC-AF_VPC_SUBNET`：VPC/子网基线，为账号创建默认网络

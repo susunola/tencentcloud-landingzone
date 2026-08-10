@@ -12,6 +12,12 @@ region = "ap-guangzhou"
 
 root_node_name = "集团根账号"
 
+# --- 模块开关（裁剪：置 false 即整体跳过该模块）---
+# enable_guardrails       = true   # 防护规则（SCP）
+# enable_baselines        = true   # 账号工厂基线
+# enable_login_permission = true   # 管理账号登录业务账号
+# enable_auditor_policy   = true   # 全员只读审计绑定
+
 # --- 业务账号（key 唯一；department 必须是 departments 中的 key）---
 business_accounts = {
   "app-prod" = {
@@ -30,8 +36,36 @@ business_accounts = {
 # member_permission_ids = [1, 2, 4]
 # pay_uin               = "10000xxxxxx"
 
-# --- 账号工厂基线 ---
-default_tag_key   = "Environment"
-default_tag_value = "managed"
-baseline_vpc_cidr = "10.0.0.0/16"
-baseline_zone     = "ap-guangzhou-6"
+# --- 防护规则（扩展：直接增删 map 项；bound_to 为绑定的部门 key）---
+# guardrail_policies = {
+#   DenyDeleteSecurityResources = {
+#     description = "禁止删除安全合规资源"
+#     bound_to    = ["business"]
+#     content     = <<-EOT
+#     {
+#       "version": "2.0",
+#       "statement": [
+#         {
+#           "effect": "deny",
+#           "action": ["cam:DeleteUser", "cloudaudit:DeleteAudit", "cos:DeleteBucket"],
+#           "resource": ["*"]
+#         }
+#       ]
+#     }
+#     EOT
+#   }
+# }
+
+# --- 账号工厂基线（扩展：直接增删列表项）---
+# baseline_config_items = [
+#   {
+#     identifier = "TCC-AF_PRESET_TAG"
+#     configuration = <<-EOT
+#     {
+#       "TagValuePairs": [
+#         { "Key": "Environment", "Values": ["managed"] }
+#       ]
+#     }
+#     EOT
+#   }
+# ]

@@ -37,6 +37,33 @@ variable "tags" {
 }
 
 # =============================================================================
+# 模块开关（裁剪用）：置 false 即整体跳过对应模块
+# =============================================================================
+variable "enable_guardrails" {
+  description = "是否创建并绑定防护规则（服务控制策略 SCP），false 则整个防护规则模块不生效"
+  type        = bool
+  default     = true
+}
+
+variable "enable_baselines" {
+  description = "是否配置并批量应用账号工厂基线，false 则整个基线模块不生效"
+  type        = bool
+  default     = true
+}
+
+variable "enable_login_permission" {
+  description = "是否开启管理账号以管理员身份登录业务账号（登录授权）"
+  type        = bool
+  default     = true
+}
+
+variable "enable_auditor_policy" {
+  description = "是否将只读审计身份绑定到全部账号"
+  type        = bool
+  default     = true
+}
+
+# =============================================================================
 # 部门（组织单元）与账号
 # =============================================================================
 variable "departments" {
@@ -118,7 +145,71 @@ variable "pay_uin" {
 }
 
 # =============================================================================
-# 账号工厂基线（对应 Landing Zone「基线管理」配置）
+# 防护规则（服务控制策略，可扩展：增删 map 项即可；裁剪：清空 map 或关开关）
+# =============================================================================
+variable "guardrail_policies" {
+  description = <<-EOT
+    防护规则（SCP）map，key 为策略名，bound_to 为要绑定的部门 key 列表
+    （必须是 departments 中的 key）。content 为 CAM 策略语法 JSON。
+  EOT
+  type = map(object({
+    description = string
+    content     = string
+    bound_to    = list(string)
+  }))
+  default = {
+    DenyDeleteSecurityResources = {
+      description = "禁止删除 CAM 身份、审计、日志与存储资源，保护安全合规资产"
+      bound_to    = ["business"]
+      content     = <<-EOT
+      {
+        "version": "2.0",
+        "statement": [
+          {
+            "effect": "deny",
+            "action": [
+              "cam:DeleteUser",
+              "cam:DeleteRole",
+              "cam:DeletePolicy",
+              "cloudaudit:DeleteAudit",
+              "cloudaudit:StopLogging",
+              "config:DeleteConfigRule",
+              "cls:DeleteLogset",
+              "cls:DeleteTopic",
+              "cos:DeleteBucket"
+            ],
+            "resource": ["*"]
+          }
+        ]
+      }
+      EOT
+    }
+    DenyDeleteCoreNetwork = {
+      description = "禁止删除 VPC、子网、NAT 网关等核心网络资源"
+      bound_to    = ["business"]
+      content     = <<-EOT
+      {
+        "version": "2.0",
+        "statement": [
+          {
+            "effect": "deny",
+            "action": [
+              "vpc:DeleteVpc",
+              "vpc:DeleteSubnet",
+              "vpc:DeleteNatGateway",
+              "vpc:DeleteVpnGateway"
+            ],
+            "resource": ["*"]
+          }
+        ]
+      }
+      EOT
+    }
+  }
+}
+
+# =============================================================================
+# 账号工厂基线（可扩展：增删列表项即可；裁剪：清空列表或关开关）
 # =============================================================================
 variable "baseline_name" {
   description = "账号工厂基线名称，须唯一"
@@ -126,26 +217,40 @@ variable "baseline_name" {
   default     = "default"
 }
 
-variable "default_tag_key" {
-  description = "预设标签基线的 Tag Key"
-  type        = string
-  default     = "Environment"
-}
-
-variable "default_tag_value" {
-  description = "预设标签基线的 Tag Value"
-  type        = string
-  default     = "managed"
-}
-
-variable "baseline_vpc_cidr" {
-  description = "VPC/子网基线的 VPC CIDR"
-  type        = string
-  default     = "10.0.0.0/16"
-}
-
-variable "baseline_zone" {
-  description = "VPC/子网基线创建子网的可用区"
-  type        = string
-  default     = "ap-guangzhou-6"
+variable "baseline_config_items" {
+  description = <<-EOT
+    账号工厂基线项列表（identifier + configuration JSON），按需增删。
+    identifier 可通过 data source tencentcloud_controlcenter_account_factory_baseline_items 查询。
+  EOT
+  type = list(object({
+    identifier    = string
+    configuration = string
+  }))
+  default = [
+    {
+      identifier    = "TCC-AF_PRESET_TAG"
+      configuration = <<-EOT
+      {
+        "TagValuePairs": [
+          { "Key": "Environment", "Values": ["managed"] }
+        ]
+      }
+      EOT
+    },
+    {
+      identifier    = "TCC-AF_VPC_SUBNET"
+      configuration = <<-EOT
+      {
+        "VpcName": "default-vpc",
+        "CidrBlock": "10.0.0.0/16",
+        "Region": 1,
+        "RegionName": "ap-guangzhou",
+        "Subnets": [
+          { "CidrBlock": "10.0.1.0/24", "SubnetName": "app", "Zone": "ap-guangzhou-6" },
+          { "CidrBlock": "10.0.2.0/24", "SubnetName": "db",  "Zone": "ap-guangzhou-6" }
+        ]
+      }
+      EOT
+    },
+  ]
 }

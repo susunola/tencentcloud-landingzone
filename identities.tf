@@ -96,8 +96,11 @@ resource "tencentcloud_organization_org_member_policy_attachment" "security_ops"
 # -----------------------------------------------------------------------------
 # 成员策略：将「只读审计」身份绑定到全部账号
 # 注意：member_uins 单次最多 10 个，账号较多时需拆分多个资源
+# 可裁剪：enable_auditor_policy = false 关闭
 # -----------------------------------------------------------------------------
 resource "tencentcloud_organization_org_member_policy_attachment" "auditor" {
+  count = var.enable_auditor_policy ? 1 : 0
+
   member_uins = concat(
     [for m in tencentcloud_organization_org_member.core : m.id],
     [for m in tencentcloud_organization_org_member.business : m.id],
@@ -109,10 +112,11 @@ resource "tencentcloud_organization_org_member_policy_attachment" "auditor" {
 
 # -----------------------------------------------------------------------------
 # 登录授权：管理账号以「组织管理员」身份登录各业务账号
+# 可裁剪：enable_login_permission = false 关闭
 # 如需授权登录核心账号，将 for_each 改为 merge(core, business) 的并集
 # -----------------------------------------------------------------------------
 resource "tencentcloud_organization_org_member_auth_identity_attachment" "admin_login" {
-  for_each = tencentcloud_organization_org_member.business
+  for_each = var.enable_login_permission ? tencentcloud_organization_org_member.business : {}
 
   member_uin   = each.value.id
   identity_ids = [tencentcloud_organization_org_identity.admin_login.id]
