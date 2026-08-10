@@ -1,0 +1,37 @@
+# =============================================================================
+# 腾讯云凭证
+# 生产环境建议使用环境变量注入，勿将密钥提交到 git：
+#   export TENCENTCLOUD_SECRET_ID=AKIDxxxxxxxx
+#   export TENCENTCLOUD_SECRET_KEY=xxxxxxxx
+# 如需在 tfvars 中显式配置，取消下面两行注释
+# =============================================================================
+# tencentcloud_secret_id  = "AKIDxxxxxxxxxxxxxxxxxxxxxxxx"
+# tencentcloud_secret_key = "xxxxxxxxxxxxxxxxxxxxxxxx"
+
+region = "ap-guangzhou"
+
+root_node_name = "集团根账号"
+
+# --- 业务账号（key 唯一；department 必须是 departments 中的 key）---
+business_accounts = {
+  "app-prod" = {
+    name       = "应用A-生产"
+    remark     = "生产环境业务账号"
+    department = "business"
+  }
+  "dev-test" = {
+    name       = "开发测试"
+    remark     = "沙箱测试账号"
+    department = "sandbox"
+  }
+}
+
+# --- 财务（如需管理账号代付，将 7 加入 permission_ids 并设置 pay_uin）---
+# member_permission_ids = [1, 2, 4]
+# pay_uin               = "10000xxxxxx"
+
+# --- 账号工厂基线 ---
+default_tag_key   = "Environment"
+default_tag_value = "managed"
+baseline_vpc_cidr = "10.0.0.0/16"
+baseline_zone     = "ap-guangzhou-6"
