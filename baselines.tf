@@ -6,13 +6,9 @@
 #   2) Batch apply: apply baselines to selected member accounts
 # Extend: add/remove items in var.baseline_config_items
 # Trim: set enable_baselines = false
-# Supported baseline item identifiers can be listed via:
+# Supported baseline item identifiers can be listed by adding:
 #   data "tencentcloud_controlcenter_account_factory_baseline_items" "all" {}
 # =============================================================================
-
-# List baseline items supported by the account factory (identifiers,
-# categories, required fields, etc.)
-data "tencentcloud_controlcenter_account_factory_baseline_items" "all" {}
 
 # -----------------------------------------------------------------------------
 # Baseline configuration, driven by var.baseline_config_items

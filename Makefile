@@ -3,7 +3,7 @@
 
 TF := terraform
 
-.PHONY: help init fmt validate preflight plan apply stage1 stage2 stage3 stage4 output
+.PHONY: help init fmt validate lint preflight test docs plan apply stage1 stage2 stage3 stage4 output
 
 help: ## Show available commands
 	@grep -E '^[a-zA-Z0-9_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  make %-12s %s\n", $$1, $$2}'
@@ -17,8 +17,17 @@ fmt: ## Format all tf files
 validate: ## terraform validate (including check block syntax)
 	$(TF) validate
 
+lint: ## tflint (requires tflint installed)
+	tflint --format=compact --recursive
+
 preflight: ## Config preflight (reference consistency, no cloud credentials needed)
 	python3 scripts/validate-config.py
+
+test: ## Preflight unit tests (requires pytest)
+	python3 -m pytest scripts/tests -q
+
+docs: ## Regenerate README module reference (requires terraform-docs)
+	terraform-docs -c .terraform-docs.yml .
 
 plan: preflight ## Preflight + terraform plan
 	$(TF) plan

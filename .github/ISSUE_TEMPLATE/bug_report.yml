@@ -1,0 +1,54 @@
+name: Bug Report
+description: Report a problem with the Landing Zone configuration
+labels: ["bug"]
+body:
+  - type: input
+    id: version
+    attributes:
+      label: Landing Zone version
+      description: Contents of the VERSION file, or the release tag you are using
+      placeholder: 0.1.0
+    validations:
+      required: true
+  - type: input
+    id: terraform-version
+    attributes:
+      label: Terraform version
+      placeholder: terraform version output, e.g. v1.9.8
+    validations:
+      required: true
+  - type: input
+    id: provider-version
+    attributes:
+      label: tencentcloud provider version
+      placeholder: e.g. 1.83.21
+    validations:
+      required: true
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: A clear description of the problem
+    validations:
+      required: true
+  - type: textarea
+    id: config
+    attributes:
+      label: Relevant configuration
+      description: The related terraform.tfvars snippet. Redact all credentials, UINs and APPIDs.
+      render: hcl
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Error output
+      description: plan/apply/preflight output. Redact all credentials.
+      render: text
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checks
+      options:
+        - label: I ran `python3 scripts/validate-config.py` and it passed (or its failure is the issue)
+        - label: I redacted all credentials and account identifiers from this report

@@ -61,6 +61,11 @@
 | `locals.tf` | 共享 locals：成员账号集合与 UIN 分批（单次上限 10 个） |
 | `checks.tf` | Terraform 原生 check 块：plan 阶段即校验配置引用一致性 |
 | `modules/audit-logging/` | 审计日志模块：日志账号 COS 桶 + 组织级云审计跟踪 |
+| `examples/` | 可直接运行的场景化示例（`minimal` / `complete`） |
+| `scripts/tests/` | 预检脚本单元测试（pytest） |
+| `VERSION` / `CHANGELOG.md` | 发布版本与变更历史（Keep a Changelog 格式） |
+| `CONTRIBUTING.md` / `SECURITY.md` / `CODEOWNERS` | 贡献约定、漏洞报告渠道、代码归属 |
+| `.terraform-docs.yml` / `.tflint.hcl` / `.pre-commit-config.yaml` | 文档生成、lint 与 pre-commit 工具链配置 |
 | `variables.tf` / `outputs.tf` | 输入变量（含原生 validation）与输出 |
 | `terraform.tfvars.example` | 变量示例 |
 | `backend.tf.example` | COS 远端 state 示例（支持 locking），复制为 `backend.tf` 启用 |
@@ -198,9 +203,17 @@ enable_auditor_policy   = false
 
 ## 持续治理
 
-- **CI 校验**：`.github/workflows/terraform-ci.yml` 在 PR / push 时自动执行 `fmt -check`、`validate`、配置预检、checkov 安全扫描（建议性，不阻断）；在仓库 Settings → Secrets 配置 `TENCENTCLOUD_SECRET_ID` / `TENCENTCLOUD_SECRET_KEY` 后，plan 步骤自动启用（不配置则跳过）。
+- **CI 校验**：`.github/workflows/terraform-ci.yml` 在 PR / push 时自动执行 `fmt -check`、`validate`、tflint、配置预检、预检单元测试（pytest）、场景示例验证、checkov/trivy 安全扫描（建议性，不阻断），并检查 terraform-docs 生成的模块参考与 README 是否漂移；在仓库 Settings → Secrets 配置 `TENCENTCLOUD_SECRET_ID` / `TENCENTCLOUD_SECRET_KEY` 后，plan 步骤自动启用（不配置则跳过）。
 - **漂移检测**：`.github/workflows/drift-detection.yml` 每周一定时执行 `terraform plan -detailed-exitcode`，发现控制台人工操作导致的漂移时 job 失败并触发通知。需配置上述凭证，并将远端 backend（`backend.tf`）纳入版本管理。
 - **收敛**：发现 drift 后人工确认，`terraform apply` 收敛回代码定义的状态。
+
+## 已知限制
+
+- 部门嵌套最多 **3 层**（根 → L1 → L2 → L3），更深的结构会被 check 块拒绝。
+- 成员账号为**创建型**而非邀请型；邀请已有账号需对方在控制中心控制台确认。
+- 集中审计日志需要在日志账号中**一次性手工创建 CAM 角色**——组织 API 无法从管理账号代为创建；投递还要求桶授权云审计服务写入。
+- 安全扫描（checkov / trivy）为**建议性**：其规则集主要面向 AWS/Azure/GCP，对腾讯云资源覆盖有限。
+- CI 使用 Secrets 中的长期凭证；基于 OIDC 的 bootstrap 阶段已列入[路线图](ROADMAP.md)。
 
 ## 默认防护规则（SCP）
 
@@ -242,6 +255,8 @@ data "tencentcloud_controlcenter_account_factory_baseline_items" "all" {}
 
 - Terraform ≥ 1.5（`check` 块需要）
 - tencentcloud provider ≥ 1.82.50（控制中心账号工厂基线资源自 v1.82.44 起提供）
+
+> 完整的模块参考（Requirements / Providers / Resources / Inputs / Outputs 表格）由 terraform-docs 自动生成，见英文 README 的 [Module Reference](README.md#module-reference) 一节。
 
 ## License
 

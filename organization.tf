@@ -80,7 +80,7 @@ resource "tencentcloud_organization_org_member" "core" {
   permission_ids = var.member_permission_ids
   pay_uin        = contains(var.member_permission_ids, 7) ? var.pay_uin : null
   remark         = each.value.remark
-  tags           = var.tags
+  tags           = local.common_tags
 }
 
 # =============================================================================
@@ -97,5 +97,5 @@ resource "tencentcloud_organization_org_member" "business" {
   permission_ids = var.member_permission_ids
   pay_uin        = contains(var.member_permission_ids, 7) ? var.pay_uin : null
   remark         = each.value.remark
-  tags           = var.tags
+  tags           = local.common_tags
 }

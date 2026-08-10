@@ -56,5 +56,5 @@ module "audit_logging" {
   retention_days  = var.audit_log_retention_days
   track_name      = "org-audit-track"
   storage_prefix  = "cloudaudit"
-  tags            = var.tags
+  tags            = local.common_tags
 }

@@ -68,6 +68,11 @@ Maps to the 8 Control Center Landing Zone configuration areas:
 | `locals.tf` | Shared locals: member account set and UIN chunking (10 per call) |
 | `checks.tf` | Native check blocks: reference consistency fails at plan time |
 | `modules/audit-logging/` | Audit logging module: log archive COS bucket + organization-wide CloudAudit track |
+| `examples/` | Runnable scenario examples (`minimal` / `complete`) |
+| `scripts/tests/` | Preflight unit tests (pytest) |
+| `VERSION` / `CHANGELOG.md` | Release version and change history (Keep a Changelog) |
+| `CONTRIBUTING.md` / `SECURITY.md` / `CODEOWNERS` | Contribution conventions, vulnerability reporting, ownership |
+| `.terraform-docs.yml` / `.tflint.hcl` / `.pre-commit-config.yaml` | Docs generation, lint and pre-commit tooling configuration |
 | `variables.tf` / `outputs.tf` | Input variables (with native validations) and outputs |
 | `terraform.tfvars.example` | Variable examples |
 | `backend.tf.example` | COS remote state example (with locking); copy to `backend.tf` to enable |
@@ -205,9 +210,17 @@ For first-time deployment, apply in dependency order to reduce blast radius and 
 
 ## Continuous Governance
 
-- **CI Validation**: `.github/workflows/terraform-ci.yml` runs `fmt -check`, `validate`, config preflight and an advisory checkov security scan on every PR/push. The plan step auto-enables after configuring `TENCENTCLOUD_SECRET_ID` / `TENCENTCLOUD_SECRET_KEY` in repository Settings → Secrets (skips if not configured).
+- **CI Validation**: `.github/workflows/terraform-ci.yml` runs `fmt -check`, `validate`, tflint, config preflight, preflight unit tests (pytest), scenario example validation and advisory checkov/trivy security scans on every PR/push; a docs check fails the build if the generated module reference drifts from the README. The plan step auto-enables after configuring `TENCENTCLOUD_SECRET_ID` / `TENCENTCLOUD_SECRET_KEY` in repository Settings → Secrets (skips if not configured).
 - **Drift Detection**: `.github/workflows/drift-detection.yml` runs `terraform plan -detailed-exitcode` weekly; the job fails and notifies when manual console operations have drifted the environment. Requires the credentials above and a committed remote backend (`backend.tf`).
 - **Convergence**: review detected drift manually, then run `terraform apply` to converge back to the codified state.
+
+## Known Limitations
+
+- Department nesting is capped at **3 levels** (root → L1 → L2 → L3); deeper structures are rejected by the check blocks.
+- Member accounts are **created**, not invited. Inviting existing accounts requires the invitee's confirmation in the Control Center console.
+- Central audit logging needs a **one-time manual CAM role** in the log archive account — no organization API can create it from the management account. The bucket must also authorize the CloudAudit service to write.
+- The security scans (checkov / trivy) are **advisory**: their rulesets primarily target AWS/Azure/GCP and cover Tencent Cloud resources only partially.
+- CI authentication uses long-lived credentials from repository Secrets; an OIDC-based bootstrap stage is on the [roadmap](ROADMAP.md).
 
 ## Default Guardrails (SCP)
 
@@ -249,6 +262,93 @@ Other common baseline items: `TCC-AF_SHARE_IMAGE` (shared image), `ACS-BP_ACCOUN
 
 - Terraform ≥ 1.5 (check blocks)
 - tencentcloud provider ≥ 1.82.50 (account factory baseline resources are available since v1.82.44)
+
+## Module Reference
+
+<!-- BEGIN_TF_DOCS -->
+## Requirements
+
+| Name | Version |
+| ---- | ------- |
+| terraform | >= 1.5 |
+| tencentcloud | >= 1.82.50 |
+
+## Providers
+
+| Name | Version |
+| ---- | ------- |
+| tencentcloud | 1.83.21 |
+
+## Modules
+
+| Name | Source | Version |
+| ---- | ------ | ------- |
+| audit\_logging | ./modules/audit-logging | n/a |
+
+## Resources
+
+| Name | Type |
+| ---- | ---- |
+| [tencentcloud_batch_apply_account_baselines.all](https://registry.terraform.io/providers/tencentcloudstack/tencentcloud/latest/docs/resources/batch_apply_account_baselines) | resource |
+| [tencentcloud_controlcenter_account_factory_baseline_config.default](https://registry.terraform.io/providers/tencentcloudstack/tencentcloud/latest/docs/resources/controlcenter_account_factory_baseline_config) | resource |
+| [tencentcloud_organization_instance.this](https://registry.terraform.io/providers/tencentcloudstack/tencentcloud/latest/docs/resources/organization_instance) | resource |
+| [tencentcloud_organization_org_identity.admin_login](https://registry.terraform.io/providers/tencentcloudstack/tencentcloud/latest/docs/resources/organization_org_identity) | resource |
+| [tencentcloud_organization_org_identity.auditor](https://registry.terraform.io/providers/tencentcloudstack/tencentcloud/latest/docs/resources/organization_org_identity) | resource |
+| [tencentcloud_organization_org_identity.security_ops](https://registry.terraform.io/providers/tencentcloudstack/tencentcloud/latest/docs/resources/organization_org_identity) | resource |
+| [tencentcloud_organization_org_manage_policy.this](https://registry.terraform.io/providers/tencentcloudstack/tencentcloud/latest/docs/resources/organization_org_manage_policy) | resource |
+| [tencentcloud_organization_org_manage_policy_config.scp](https://registry.terraform.io/providers/tencentcloudstack/tencentcloud/latest/docs/resources/organization_org_manage_policy_config) | resource |
+| [tencentcloud_organization_org_manage_policy_target.this](https://registry.terraform.io/providers/tencentcloudstack/tencentcloud/latest/docs/resources/organization_org_manage_policy_target) | resource |
+| [tencentcloud_organization_org_member.business](https://registry.terraform.io/providers/tencentcloudstack/tencentcloud/latest/docs/resources/organization_org_member) | resource |
+| [tencentcloud_organization_org_member.core](https://registry.terraform.io/providers/tencentcloudstack/tencentcloud/latest/docs/resources/organization_org_member) | resource |
+| [tencentcloud_organization_org_member_auth_identity_attachment.admin_login](https://registry.terraform.io/providers/tencentcloudstack/tencentcloud/latest/docs/resources/organization_org_member_auth_identity_attachment) | resource |
+| [tencentcloud_organization_org_member_policy_attachment.auditor](https://registry.terraform.io/providers/tencentcloudstack/tencentcloud/latest/docs/resources/organization_org_member_policy_attachment) | resource |
+| [tencentcloud_organization_org_member_policy_attachment.security_ops](https://registry.terraform.io/providers/tencentcloudstack/tencentcloud/latest/docs/resources/organization_org_member_policy_attachment) | resource |
+| [tencentcloud_organization_org_node.level2](https://registry.terraform.io/providers/tencentcloudstack/tencentcloud/latest/docs/resources/organization_org_node) | resource |
+| [tencentcloud_organization_org_node.level3](https://registry.terraform.io/providers/tencentcloudstack/tencentcloud/latest/docs/resources/organization_org_node) | resource |
+| [tencentcloud_organization_org_node.this](https://registry.terraform.io/providers/tencentcloudstack/tencentcloud/latest/docs/resources/organization_org_node) | resource |
+
+## Inputs
+
+| Name | Description | Type | Default | Required |
+| ---- | ----------- | ---- | ------- | :------: |
+| audit\_log\_bucket\_name | Audit log COS bucket name (without the -APPID suffix, globally unique); required when enable\_central\_logging = true | `string` | `null` | no |
+| audit\_log\_retention\_days | Audit log retention in days, expired objects are deleted by a COS lifecycle rule; 0 keeps logs forever | `number` | `365` | no |
+| baseline\_config\_items | Account factory baseline item list (identifier + configuration JSON); add or remove as needed.<br/>Identifiers can be listed via data source tencentcloud\_controlcenter\_account\_factory\_baseline\_items. | <pre>list(object({<br/>    identifier    = string<br/>    configuration = string<br/>  }))</pre> | <pre>[<br/>  {<br/>    "configuration": "{\n  \"TagValuePairs\": [\n    { \"Key\": \"Environment\", \"Values\": [\"managed\"] }\n  ]\n}\n",<br/>    "identifier": "TCC-AF_PRESET_TAG"<br/>  },<br/>  {<br/>    "configuration": "{\n  \"VpcName\": \"default-vpc\",\n  \"CidrBlock\": \"10.0.0.0/16\",\n  \"Region\": 1,\n  \"RegionName\": \"ap-guangzhou\",\n  \"Subnets\": [\n    { \"CidrBlock\": \"10.0.1.0/24\", \"SubnetName\": \"app\", \"Zone\": \"ap-guangzhou-6\" },\n    { \"CidrBlock\": \"10.0.2.0/24\", \"SubnetName\": \"db\",  \"Zone\": \"ap-guangzhou-6\" }\n  ]\n}\n",<br/>    "identifier": "TCC-AF_VPC_SUBNET"<br/>  }<br/>]</pre> | no |
+| baseline\_name | Account factory baseline name; must be unique | `string` | `"default"` | no |
+| business\_accounts | Business/sandbox accounts. Map key is the resource identifier; department must be a departments key.<br/>Maps to the "Account Creation / Invitation" section of the Control Center Landing Zone. | <pre>map(object({<br/>    name       = string<br/>    remark     = string<br/>    department = string<br/>  }))</pre> | <pre>{<br/>  "app-prod": {<br/>    "department": "business",<br/>    "name": "AppA-Production",<br/>    "remark": "Production business account"<br/>  },<br/>  "dev-test": {<br/>    "department": "sandbox",<br/>    "name": "DevTest",<br/>    "remark": "Sandbox test account"<br/>  }<br/>}</pre> | no |
+| core\_accounts | Core accounts (key accounts managed by the management account), mapping to the<br/>"Core Accounts" section of the Control Center Landing Zone.<br/>Each element: key (resource identifier), name, department (must be a departments key), remark. | <pre>list(object({<br/>    key        = string<br/>    name       = string<br/>    department = string<br/>    remark     = string<br/>  }))</pre> | <pre>[<br/>  {<br/>    "department": "core",<br/>    "key": "security",<br/>    "name": "Security",<br/>    "remark": "Centralized security products (WAF, host security, etc.)"<br/>  },<br/>  {<br/>    "department": "core",<br/>    "key": "logging",<br/>    "name": "Logging",<br/>    "remark": "Centralized collection of operation audit and config audit logs"<br/>  },<br/>  {<br/>    "department": "core",<br/>    "key": "finance",<br/>    "name": "Finance",<br/>    "remark": "Finance reconciliation and cost analysis"<br/>  }<br/>]</pre> | no |
+| departments | Department (organizational unit) list. key is the resource identifier, name is the display name.<br/>Maps to the "Departments" section of the Control Center Landing Zone.<br/>parent is optional: set it to another department key to create a sub-department<br/>(up to 3 levels: root -> L1 -> L2 -> L3); null (default) attaches to the organization root. | <pre>list(object({<br/>    key    = string<br/>    name   = string<br/>    remark = string<br/>    parent = optional(string, null)<br/>  }))</pre> | <pre>[<br/>  {<br/>    "key": "core",<br/>    "name": "Core",<br/>    "remark": "Hosts security, logging and finance core accounts"<br/>  },<br/>  {<br/>    "key": "business",<br/>    "name": "Business",<br/>    "remark": "Production business accounts"<br/>  },<br/>  {<br/>    "key": "sandbox",<br/>    "name": "Sandbox",<br/>    "remark": "Test and experiment accounts; must not host production workloads"<br/>  }<br/>]</pre> | no |
+| enable\_auditor\_policy | Whether to bind the read-only auditor identity to all accounts | `bool` | `true` | no |
+| enable\_baselines | Whether to configure and batch-apply account factory baselines; false disables the whole baseline module | `bool` | `true` | no |
+| enable\_central\_logging | Whether to create an organization-wide CloudAudit track (track\_for\_all\_members) delivering all member operation logs to a COS bucket in the log archive account | `bool` | `false` | no |
+| enable\_guardrails | Whether to create and attach guardrails (Service Control Policies); false disables the whole guardrail module | `bool` | `true` | no |
+| enable\_login\_permission | Whether to allow the management account to log in to business accounts as administrator (login authorization) | `bool` | `true` | no |
+| guardrail\_policies | Guardrail (SCP) map. Map key is the policy name; bound\_to lists department keys<br/>to attach (must be departments keys). content is a CAM policy syntax JSON document. | <pre>map(object({<br/>    description = string<br/>    content     = string<br/>    bound_to    = list(string)<br/>  }))</pre> | <pre>{<br/>  "DenyDeleteCoreNetwork": {<br/>    "bound_to": [<br/>      "business"<br/>    ],<br/>    "content": "{\n  \"version\": \"2.0\",\n  \"statement\": [\n    {\n      \"effect\": \"deny\",\n      \"action\": [\n        \"vpc:DeleteVpc\",\n        \"vpc:DeleteSubnet\",\n        \"vpc:DeleteNatGateway\",\n        \"vpc:DeleteVpnGateway\"\n      ],\n      \"resource\": [\"*\"]\n    }\n  ]\n}\n",<br/>    "description": "Deny deleting core network resources such as VPCs, subnets and NAT gateways"<br/>  },<br/>  "DenyDeleteSecurityResources": {<br/>    "bound_to": [<br/>      "business"<br/>    ],<br/>    "content": "{\n  \"version\": \"2.0\",\n  \"statement\": [\n    {\n      \"effect\": \"deny\",\n      \"action\": [\n        \"cam:DeleteUser\",\n        \"cam:DeleteRole\",\n        \"cam:DeletePolicy\",\n        \"cloudaudit:DeleteAudit\",\n        \"cloudaudit:StopLogging\",\n        \"cloudaudit:DeleteAuditTrack\",\n        \"cloudaudit:ModifyAuditTrack\",\n        \"config:DeleteConfigRule\",\n        \"cls:DeleteLogset\",\n        \"cls:DeleteTopic\",\n        \"cos:DeleteBucket\"\n      ],\n      \"resource\": [\"*\"]\n    }\n  ]\n}\n",<br/>    "description": "Deny deleting CAM identities, audit, logging and storage resources to protect security and compliance assets"<br/>  },<br/>  "DenyOrganizationTampering": {<br/>    "bound_to": [<br/>      "core",<br/>      "business",<br/>      "sandbox"<br/>    ],<br/>    "content": "{\n  \"version\": \"2.0\",\n  \"statement\": [\n    {\n      \"effect\": \"deny\",\n      \"action\": [\n        \"organization:QuitOrganization\",\n        \"organization:DeleteOrganizationMembers\",\n        \"organization:DeleteOrganizationNodes\",\n        \"organization:MoveOrganizationNode\",\n        \"organization:UpdateOrganizationNode\",\n        \"organization:UpdateOrganizationMembers\"\n      ],\n      \"resource\": [\"*\"]\n    }\n  ]\n}\n",<br/>    "description": "Deny member accounts quitting the organization or mutating organization members/nodes; structure changes are reserved for the management account"<br/>  }<br/>}</pre> | no |
+| log\_archive\_account\_key | Key of the log archive account in core\_accounts (its UIN is used as the audit log storage account) | `string` | `"logging"` | no |
+| log\_archive\_appid | APPID of the log archive account (COS bucket names require the -APPID suffix); required when enable\_central\_logging = true | `string` | `null` | no |
+| log\_archive\_role\_name | Name of the CAM role pre-created in the log archive account; the management account assumes it to create/maintain the COS bucket | `string` | `"LandingZoneLogArchiveAccess"` | no |
+| member\_permission\_ids | Member finance permissions (maps to the Landing Zone "Finance" section):<br/>1 view bills, 2 view balance, 3 fund transfer, 4 consolidated billing,<br/>5 invoicing, 6 discount inheritance, 7 delegated payment.<br/>Must include 1 and 2; pay\_uin is required when 7 is included. | `list(number)` | <pre>[<br/>  1,<br/>  2,<br/>  4<br/>]</pre> | no |
+| pay\_uin | Delegated payment account UIN; only required when member\_permission\_ids includes 7 | `string` | `null` | no |
+| region | Tencent Cloud region. Organization / Control Center are global services; this is only used for regional resources (e.g. the baseline VPC) | `string` | `"ap-guangzhou"` | no |
+| root\_node\_name | Organization root node name (root department under the management account) | `string` | `"Root"` | no |
+| tags | Global tags applied to taggable resources | `map(string)` | <pre>{<br/>  "ManagedBy": "Terraform",<br/>  "Purpose": "LandingZone"<br/>}</pre> | no |
+| tencentcloud\_secret\_id | Tencent Cloud API SecretId; leave null to use the TENCENTCLOUD\_SECRET\_ID environment variable | `string` | `null` | no |
+| tencentcloud\_secret\_key | Tencent Cloud API SecretKey; leave null to use the TENCENTCLOUD\_SECRET\_KEY environment variable | `string` | `null` | no |
+
+## Outputs
+
+| Name | Description |
+| ---- | ----------- |
+| audit\_log\_bucket | Central audit log COS bucket, full name with -APPID suffix (null when enable\_central\_logging = false) |
+| baseline\_id | Account factory baseline configuration ID (null when enable\_baselines = false) |
+| business\_account\_uins | Business/sandbox account UINs |
+| core\_account\_uins | Core account UINs, keyed by core\_accounts key |
+| department\_nodes | Department (organizational unit) IDs, keyed by departments key (including nested sub-departments) |
+| identity\_ids | Custom identity (permission set) IDs |
+| manage\_policy\_ids | Guardrail (SCP) policy IDs, keyed by guardrail\_policies policy name |
+| organization\_id | Organization (group account management) ID |
+| root\_node\_id | Organization root node ID |
+<!-- END_TF_DOCS -->
 
 ## License
 

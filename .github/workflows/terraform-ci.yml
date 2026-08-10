@@ -10,10 +10,11 @@ permissions:
 
 env:
   TF_VERSION: 1.9.8
+  TFDOCS_VERSION: 0.24.0
 
 jobs:
   validate:
-    name: fmt / validate / preflight / plan
+    name: fmt / validate / lint / preflight / unit tests / plan
     runs-on: ubuntu-latest
     env:
       # secrets cannot be referenced directly in step-level if; map them to env first
@@ -27,8 +28,10 @@ jobs:
         with:
           terraform_version: ${{ env.TF_VERSION }}
 
-      - name: Setup python-hcl2
-        run: pip install python-hcl2
+      - uses: terraform-linters/setup-tflint@v4
+
+      - name: Setup python dependencies
+        run: pip install python-hcl2 pytest
 
       - name: terraform fmt
         run: terraform fmt -check -recursive
@@ -39,8 +42,14 @@ jobs:
       - name: terraform validate
         run: terraform validate
 
+      - name: tflint
+        run: tflint --format=compact --recursive
+
       - name: preflight config check
         run: python3 scripts/validate-config.py
+
+      - name: preflight unit tests
+        run: python3 -m pytest scripts/tests -q
 
       # The plan step is enabled automatically once TENCENTCLOUD_SECRET_ID /
       # TENCENTCLOUD_SECRET_KEY are configured in repository Settings -> Secrets
@@ -48,10 +57,51 @@ jobs:
         if: env.HAS_CREDENTIALS == 'true'
         run: terraform plan -input=false -no-color -refresh=false
 
-  security-scan:
-    name: checkov (advisory)
+  docs-check:
+    name: terraform-docs up to date
     runs-on: ubuntu-latest
-    continue-on-error: true # advisory scan; does not block CI, triage findings manually
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install terraform-docs
+        run: |
+          curl -sSLo /tmp/terraform-docs.tar.gz "https://github.com/terraform-docs/terraform-docs/releases/download/v${TFDOCS_VERSION}/terraform-docs-v${TFDOCS_VERSION}-linux-amd64.tar.gz"
+          tar -xzf /tmp/terraform-docs.tar.gz -C /tmp terraform-docs
+          sudo install /tmp/terraform-docs /usr/local/bin/
+        env:
+          TFDOCS_VERSION: ${{ env.TFDOCS_VERSION }}
+
+      - name: Verify generated docs match
+        run: |
+          terraform-docs -c .terraform-docs.yml .
+          git diff --exit-code README.md modules/audit-logging/README.md
+
+  examples:
+    name: examples / ${{ matrix.example }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        example: [minimal, complete]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: terraform init
+        working-directory: examples/${{ matrix.example }}
+        run: terraform init -backend=false -input=false
+
+      - name: terraform validate
+        working-directory: examples/${{ matrix.example }}
+        run: terraform validate
+
+  security-scan:
+    name: checkov + trivy (advisory)
+    runs-on: ubuntu-latest
+    continue-on-error: true # advisory scans; do not block CI, triage findings manually
     steps:
       - uses: actions/checkout@v4
 
@@ -66,3 +116,12 @@ jobs:
         run: |
           pip install checkov
           checkov -d . --framework terraform --compact --soft-fail
+
+      # trivy covers IaC misconfigurations and committed secrets
+      - name: trivy scan
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: config
+          scanners: misconfig,secret
+          severity: CRITICAL,HIGH
+          exit-code: "0" # advisory, consistent with checkov
