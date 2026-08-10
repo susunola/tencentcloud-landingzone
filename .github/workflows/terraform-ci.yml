@@ -5,16 +5,27 @@ on:
   push:
     branches: [main]
 
+permissions:
+  contents: read
+
+env:
+  TF_VERSION: 1.9.8
+
 jobs:
   validate:
-    name: fmt / validate / preflight
+    name: fmt / validate / preflight / plan
     runs-on: ubuntu-latest
+    env:
+      # secrets cannot be referenced directly in step-level if; map them to env first
+      TENCENTCLOUD_SECRET_ID: ${{ secrets.TENCENTCLOUD_SECRET_ID }}
+      TENCENTCLOUD_SECRET_KEY: ${{ secrets.TENCENTCLOUD_SECRET_KEY }}
+      HAS_CREDENTIALS: ${{ secrets.TENCENTCLOUD_SECRET_ID != '' && secrets.TENCENTCLOUD_SECRET_KEY != '' }}
     steps:
       - uses: actions/checkout@v4
 
       - uses: hashicorp/setup-terraform@v3
         with:
-          terraform_version: 1.5.7
+          terraform_version: ${{ env.TF_VERSION }}
 
       - name: Setup python-hcl2
         run: pip install python-hcl2
@@ -23,7 +34,7 @@ jobs:
         run: terraform fmt -check -recursive
 
       - name: terraform init
-        run: terraform init -input=false
+        run: terraform init -backend=false -input=false
 
       - name: terraform validate
         run: terraform validate
@@ -31,10 +42,27 @@ jobs:
       - name: preflight config check
         run: python3 scripts/validate-config.py
 
-      # 配置仓库 Secrets: TENCENTCLOUD_SECRET_ID / TENCENTCLOUD_SECRET_KEY 后自动启用 plan
+      # The plan step is enabled automatically once TENCENTCLOUD_SECRET_ID /
+      # TENCENTCLOUD_SECRET_KEY are configured in repository Settings -> Secrets
       - name: terraform plan
-        if: ${{ secrets.TENCENTCLOUD_SECRET_ID != '' && secrets.TENCENTCLOUD_SECRET_KEY != '' }}
-        env:
-          TENCENTCLOUD_SECRET_ID: ${{ secrets.TENCENTCLOUD_SECRET_ID }}
-          TENCENTCLOUD_SECRET_KEY: ${{ secrets.TENCENTCLOUD_SECRET_KEY }}
-        run: terraform plan -input=false -no-color
+        if: env.HAS_CREDENTIALS == 'true'
+        run: terraform plan -input=false -no-color -refresh=false
+
+  security-scan:
+    name: checkov (advisory)
+    runs-on: ubuntu-latest
+    continue-on-error: true # advisory scan; does not block CI, triage findings manually
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: terraform init
+        run: terraform init -backend=false -input=false
+
+      - name: checkov scan
+        run: |
+          pip install checkov
+          checkov -d . --framework terraform --compact --soft-fail

@@ -1,0 +1,22 @@
+# =============================================================================
+# Remote state: Tencent Cloud COS backend (built into Terraform, supports
+# state locking). Required for team collaboration and CI.
+#
+# Usage:
+#   1. Create a COS bucket once (versioning, default encryption and private
+#      ACL recommended), e.g. tf-state-<appid> in the management account
+#   2. Copy this file to backend.tf and fill in bucket / prefix / region
+#   3. terraform init -migrate-state   # migrate the local state into COS
+#
+# Credentials: reuses the TENCENTCLOUD_SECRET_ID / TENCENTCLOUD_SECRET_KEY
+# environment variables, or pass them via
+# terraform init -backend-config="secret_id=...".
+# =============================================================================
+terraform {
+  backend "cos" {
+    bucket  = "tf-state-<appid>"              # replace with your bucket name (with -APPID suffix)
+    prefix  = "landingzone/terraform.tfstate" # state object path
+    region  = "ap-guangzhou"
+    encrypt = true                            # server-side encryption
+  }
+}

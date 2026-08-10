@@ -1,25 +1,31 @@
 #!/usr/bin/env python3
-"""Landing Zone 配置预检（借鉴 AWS LZA 的 config validation 思想）。
+"""Landing Zone configuration preflight.
 
-在 terraform plan 之前校验 terraform.tfvars(.json) 中的配置引用一致性，
-给出友好报错，避免 plan/apply 到中途才发现引用错误。
+Validates reference consistency in terraform.tfvars(.json) before
+terraform plan, producing friendly errors instead of failing halfway
+through a plan/apply.
 
-依赖: python-hcl2（pip install python-hcl2）
+Dependency: python-hcl2 (pip install python-hcl2)
 
-用法:
+Usage:
     python3 scripts/validate-config.py [path/to/tfvars]
-不传参数时自动探测 terraform.tfvars 或 terraform.tfvars.json。
+Without arguments, terraform.tfvars or terraform.tfvars.json is auto-detected.
 
-校验项:
-  1. departments 的 key 唯一
-  2. core_accounts / business_accounts 的 department 必须存在于 departments
-  3. member_permission_ids 必须包含 1、2；包含 7 时必须设置 pay_uin
-  4. guardrail_policies 的 bound_to 必须存在于 departments
-  5. baseline_config_items 的 identifier 非空
-  6. enable_* 开关必须是 bool
+Checks:
+  1. departments keys are unique
+  2. departments parents exist, are not self-references, cycles or deeper
+     than 3 levels
+  3. core_accounts / business_accounts departments exist in departments
+  4. member_permission_ids includes 1 and 2; pay_uin is set when 7 is included
+  5. guardrail_policies bound_to targets exist in departments
+  6. baseline_config_items identifiers are non-empty
+  7. enable_* flags are booleans
+  8. audit_log_bucket_name and log_archive_appid are set when
+     enable_central_logging = true
 
-说明: 未在 tfvars 中显式定义的变量使用 variables.tf 默认值；
-departments 未定义时按默认部门 (core/business/sandbox) 校验。
+Note: variables not explicitly set in tfvars fall back to variables.tf
+defaults; when departments is undefined, the default departments
+(core/business/sandbox) are assumed.
 """
 
 import json
@@ -31,22 +37,22 @@ FINDING_FMT = "  [{}] {}"
 
 
 def load_tfvars(path):
-    """返回解析后的 dict，支持 HCL 与 JSON 两种 tfvars。"""
+    """Return the parsed tfvars as a dict; supports both HCL and JSON."""
     if path.endswith(".json"):
         with open(path, encoding="utf-8") as f:
             return json.load(f)
     try:
         import hcl2
     except ImportError:
-        print("[ERROR] 解析 HCL tfvars 需要 python-hcl2，请先安装: pip install python-hcl2")
-        print("        或改用 JSON 格式的 terraform.tfvars.json")
+        print("[ERROR] Parsing HCL tfvars requires python-hcl2: pip install python-hcl2")
+        print("        or use a JSON-formatted terraform.tfvars.json instead")
         sys.exit(2)
     with open(path, encoding="utf-8") as f:
         return hcl2.load(f)
 
 
 def clean(v):
-    """python-hcl2 的字符串键值会保留引号（如 '"abc"'），递归去除。"""
+    """python-hcl2 keeps quotes in string keys/values (e.g. '"abc"'); strip them recursively."""
     if isinstance(v, str) and len(v) >= 2 and v[0] == '"' and v[-1] == '"':
         return v[1:-1]
     if isinstance(v, list):
@@ -68,13 +74,13 @@ def main():
             path = None
 
     if path is None:
-        print("未找到 terraform.tfvars(.json)，跳过预检（将使用 variables.tf 默认值）。")
+        print("No terraform.tfvars(.json) found; skipping preflight (variables.tf defaults will be used).")
         return 0
 
     try:
         cfg = clean(load_tfvars(path))
     except Exception as e:  # noqa: BLE001
-        print(f"[ERROR] 解析 {path} 失败: {e}")
+        print(f"[ERROR] Failed to parse {path}: {e}")
         return 1
 
     findings = []
@@ -83,7 +89,8 @@ def main():
     depts = cfg.get("departments")
     if depts is None:
         dept_keys = DEFAULT_DEPARTMENT_KEYS
-        findings.append(("WARN", "departments 未在 tfvars 定义，按默认 (core/business/sandbox) 校验"))
+        dept_parents = {}
+        findings.append(("WARN", "departments not defined in tfvars; validating against defaults (core/business/sandbox)"))
     else:
         dept_keys = [d.get("key") for d in depts if isinstance(d, dict) and d.get("key")]
         seen, dup = set(), set()
@@ -92,10 +99,38 @@ def main():
                 dup.add(k)
             seen.add(k)
         for d in dup:
-            findings.append(("ERROR", f"departments 存在重复 key: {d}"))
+            findings.append(("ERROR", f"departments has duplicate key: {d}"))
+        dept_parents = {d["key"]: d.get("parent") for d in depts if isinstance(d, dict) and d.get("key")}
     dept_set = set(dept_keys)
 
-    # 2) 账号的 department 引用
+    # 1b) department nesting: parent existence, self-reference, cycles, depth (max 3 levels)
+    for k, parent in dept_parents.items():
+        if parent is None:
+            continue
+        if parent == k:
+            findings.append(("ERROR", f"departments '{k}' must not use itself as parent"))
+        elif parent not in dept_set:
+            findings.append(("ERROR", f"departments '{k}' parent '{parent}' does not exist in departments: {sorted(dept_set)}"))
+
+    def depth_of(key):
+        """Walk up the parent chain counting levels; returns None on cycles."""
+        depth, seen, cur = 1, set(), key
+        while dept_parents.get(cur) is not None:
+            if cur in seen:
+                return None
+            seen.add(cur)
+            cur = dept_parents[cur]
+            depth += 1
+        return depth
+
+    for k in dept_parents:
+        dep = depth_of(k)
+        if dep is None:
+            findings.append(("ERROR", f"departments '{k}' has a cycle in its parent chain"))
+        elif dep > 3:
+            findings.append(("ERROR", f"departments '{k}' is nested {dep} levels deep; at most 3 are supported (root -> L1 -> L2 -> L3)"))
+
+    # 2) account department references
     def check_dept(owner, accounts):
         if not isinstance(accounts, (list, dict)):
             return
@@ -105,23 +140,23 @@ def main():
                 continue
             dep = acc.get("department")
             if dep is None:
-                findings.append(("WARN", f"{owner} 中 '{name}' 未指定 department"))
+                findings.append(("WARN", f"{owner} entry '{name}' has no department"))
             elif dep not in dept_set:
-                findings.append(("ERROR", f"{owner} 中 '{name}' 的 department '{dep}' 不存在于 departments: {sorted(dept_set)}"))
+                findings.append(("ERROR", f"{owner} entry '{name}' references department '{dep}' which does not exist in departments: {sorted(dept_set)}"))
 
     check_dept("core_accounts", cfg.get("core_accounts", []))
     check_dept("business_accounts", cfg.get("business_accounts", {}))
 
-    # 3) 财务权限
+    # 3) finance permissions
     perms = cfg.get("member_permission_ids")
     if isinstance(perms, list):
         nums = [p for p in perms if isinstance(p, int)]
         if not (1 in nums and 2 in nums):
-            findings.append(("ERROR", "member_permission_ids 必须包含 1(查账单) 和 2(查余额)"))
+            findings.append(("ERROR", "member_permission_ids must include 1 (view bills) and 2 (view balance)"))
         if 7 in nums and not cfg.get("pay_uin"):
-            findings.append(("ERROR", "member_permission_ids 包含 7(代付) 时必须设置 pay_uin"))
+            findings.append(("ERROR", "pay_uin must be set when member_permission_ids includes 7 (delegated payment)"))
 
-    # 4) 防护规则绑定目标
+    # 4) guardrail attachment targets
     gp = cfg.get("guardrail_policies")
     if isinstance(gp, dict):
         for name, p in gp.items():
@@ -129,28 +164,35 @@ def main():
                 continue
             for t in p.get("bound_to", []):
                 if t not in dept_set:
-                    findings.append(("ERROR", f"guardrail_policies['{name}'] 绑定目标 '{t}' 不存在于 departments: {sorted(dept_set)}"))
+                    findings.append(("ERROR", f"guardrail_policies['{name}'] bound_to target '{t}' does not exist in departments: {sorted(dept_set)}"))
 
-    # 5) 基线项
+    # 5) baseline items
     bi = cfg.get("baseline_config_items")
     if isinstance(bi, list):
         for i, item in enumerate(bi):
             if isinstance(item, dict) and not item.get("identifier"):
-                findings.append(("ERROR", f"baseline_config_items[{i}] 缺少 identifier"))
+                findings.append(("ERROR", f"baseline_config_items[{i}] is missing identifier"))
 
-    # 6) 开关类型
+    # 6) flag types
     for k, v in cfg.items():
         if k.startswith("enable_") and not isinstance(v, bool):
-            findings.append(("ERROR", f"{k} 必须是 bool (true/false)，当前为 {v!r}"))
+            findings.append(("ERROR", f"{k} must be a bool (true/false), got {v!r}"))
+
+    # 7) central audit logging prerequisites
+    if cfg.get("enable_central_logging") is True:
+        if not cfg.get("audit_log_bucket_name"):
+            findings.append(("ERROR", "audit_log_bucket_name must be set when enable_central_logging = true"))
+        if not cfg.get("log_archive_appid"):
+            findings.append(("ERROR", "log_archive_appid must be set when enable_central_logging = true"))
 
     if not findings:
-        print(f"\u2714 配置预检通过: {path}")
+        print(f"✔ Preflight passed: {path}")
         return 0
 
     for level, msg in findings:
         print(FINDING_FMT.format(level, msg))
     errs = [f for f in findings if f[0] == "ERROR"]
-    print(f"\n共 {len(findings)} 条发现（{len(errs)} 条错误）: {path}")
+    print(f"\n{len(findings)} finding(s), {len(errs)} error(s): {path}")
     return 1 if errs else 0
 
 

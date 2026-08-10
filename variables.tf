@@ -1,39 +1,39 @@
 # =============================================================================
-# 通用
+# General
 # =============================================================================
 variable "tencentcloud_secret_id" {
-  description = "腾讯云 API 密钥 SecretId，留空则使用环境变量 TENCENTCLOUD_SECRET_ID"
+  description = "Tencent Cloud API SecretId; leave null to use the TENCENTCLOUD_SECRET_ID environment variable"
   type        = string
   default     = null
   sensitive   = true
 }
 
 variable "tencentcloud_secret_key" {
-  description = "腾讯云 API 密钥 SecretKey，留空则使用环境变量 TENCENTCLOUD_SECRET_KEY"
+  description = "Tencent Cloud API SecretKey; leave null to use the TENCENTCLOUD_SECRET_KEY environment variable"
   type        = string
   default     = null
   sensitive   = true
 }
 
 variable "region" {
-  description = "腾讯云地域，组织/控制中心为全局服务，此参数用于创建地域性资源（如基线 VPC）"
+  description = "Tencent Cloud region. Organization / Control Center are global services; this is only used for regional resources (e.g. the baseline VPC)"
   type        = string
   default     = "ap-guangzhou"
 
   validation {
     condition     = can(regex("^[a-z]+-[a-z]+$", var.region))
-    error_message = "region 必须是形如 ap-guangzhou 的地域标识"
+    error_message = "region must be a region identifier like ap-guangzhou"
   }
 }
 
 variable "root_node_name" {
-  description = "组织根节点名称（管理账号下的根部门）"
+  description = "Organization root node name (root department under the management account)"
   type        = string
-  default     = "集团根账号"
+  default     = "Root"
 }
 
 variable "tags" {
-  description = "全局标签，附加到可打标签的资源上"
+  description = "Global tags applied to taggable resources"
   type        = map(string)
   default = {
     ManagedBy = "Terraform"
@@ -42,41 +42,41 @@ variable "tags" {
 }
 
 # =============================================================================
-# 模块开关（裁剪用）：置 false 即整体跳过对应模块
+# Feature flags: set to false to skip the whole module
 # =============================================================================
 variable "enable_guardrails" {
-  description = "是否创建并绑定防护规则（服务控制策略 SCP），false 则整个防护规则模块不生效"
+  description = "Whether to create and attach guardrails (Service Control Policies); false disables the whole guardrail module"
   type        = bool
   default     = true
 }
 
 variable "enable_baselines" {
-  description = "是否配置并批量应用账号工厂基线，false 则整个基线模块不生效"
+  description = "Whether to configure and batch-apply account factory baselines; false disables the whole baseline module"
   type        = bool
   default     = true
 }
 
 variable "enable_login_permission" {
-  description = "是否开启管理账号以管理员身份登录业务账号（登录授权）"
+  description = "Whether to allow the management account to log in to business accounts as administrator (login authorization)"
   type        = bool
   default     = true
 }
 
 variable "enable_auditor_policy" {
-  description = "是否将只读审计身份绑定到全部账号"
+  description = "Whether to bind the read-only auditor identity to all accounts"
   type        = bool
   default     = true
 }
 
 # =============================================================================
-# 部门（组织单元）与账号
+# Departments (organizational units) and accounts
 # =============================================================================
 variable "departments" {
   description = <<-EOT
-    部门（组织单元）列表，key 用作资源标识，name 为部门显示名称。
-    对应控制中心 Landing Zone 的「部门」配置。
-    parent 可选：指向另一个部门的 key 即创建为子部门（最多 3 层：根 → L1 → L2 → L3），
-    缺省（null）挂在组织根节点下。
+    Department (organizational unit) list. key is the resource identifier, name is the display name.
+    Maps to the "Departments" section of the Control Center Landing Zone.
+    parent is optional: set it to another department key to create a sub-department
+    (up to 3 levels: root -> L1 -> L2 -> L3); null (default) attaches to the organization root.
   EOT
   type = list(object({
     key    = string
@@ -85,21 +85,22 @@ variable "departments" {
     parent = optional(string, null)
   }))
   default = [
-    { key = "core", name = "核心账号", remark = "承载安全、日志、财务等核心账号" },
-    { key = "business", name = "业务部门", remark = "生产业务账号" },
-    { key = "sandbox", name = "沙箱环境", remark = "测试与实验账号，禁止承载生产业务" },
+    { key = "core", name = "Core", remark = "Hosts security, logging and finance core accounts" },
+    { key = "business", name = "Business", remark = "Production business accounts" },
+    { key = "sandbox", name = "Sandbox", remark = "Test and experiment accounts; must not host production workloads" },
   ]
 
   validation {
     condition     = length(var.departments) == length(distinct([for d in var.departments : d.key]))
-    error_message = "departments 的 key 必须唯一"
+    error_message = "departments keys must be unique"
   }
 }
 
 variable "core_accounts" {
   description = <<-EOT
-    核心账号（由管理账号代管的关键账号），对应控制中心 Landing Zone 的「核心账号」配置。
-    每个元素：key（资源标识）、name、department（必须是 departments 中的 key）、remark。
+    Core accounts (key accounts managed by the management account), mapping to the
+    "Core Accounts" section of the Control Center Landing Zone.
+    Each element: key (resource identifier), name, department (must be a departments key), remark.
   EOT
   type = list(object({
     key        = string
@@ -108,16 +109,16 @@ variable "core_accounts" {
     remark     = string
   }))
   default = [
-    { key = "security", name = "安全账号", department = "core", remark = "集中部署安全产品（WAF、主机安全等）" },
-    { key = "logging", name = "日志账号", department = "core", remark = "集中收集操作审计、配置审计日志" },
-    { key = "finance", name = "财务账号", department = "core", remark = "财务对账与成本分析" },
+    { key = "security", name = "Security", department = "core", remark = "Centralized security products (WAF, host security, etc.)" },
+    { key = "logging", name = "Logging", department = "core", remark = "Centralized collection of operation audit and config audit logs" },
+    { key = "finance", name = "Finance", department = "core", remark = "Finance reconciliation and cost analysis" },
   ]
 }
 
 variable "business_accounts" {
   description = <<-EOT
-    业务/沙箱账号，key 为资源标识，department 必须是 departments 中的 key。
-    对应控制中心 Landing Zone 的「账号邀请/创建」配置。
+    Business/sandbox accounts. Map key is the resource identifier; department must be a departments key.
+    Maps to the "Account Creation / Invitation" section of the Control Center Landing Zone.
   EOT
   type = map(object({
     name       = string
@@ -126,49 +127,51 @@ variable "business_accounts" {
   }))
   default = {
     "app-prod" = {
-      name       = "应用A-生产"
-      remark     = "生产环境业务账号"
+      name       = "AppA-Production"
+      remark     = "Production business account"
       department = "business"
     }
     "dev-test" = {
-      name       = "开发测试"
-      remark     = "沙箱测试账号"
+      name       = "DevTest"
+      remark     = "Sandbox test account"
       department = "sandbox"
     }
   }
 }
 
 # =============================================================================
-# 财务
+# Finance
 # =============================================================================
 variable "member_permission_ids" {
   description = <<-EOT
-    成员财务权限（对应 Landing Zone「财务」配置）：
-    1 查账单、2 查余额、3 资金划拨、4 合并账单、5 开发票、6 继承优惠、7 代付
-    必含 1、2；包含 7 时必须设置 pay_uin
+    Member finance permissions (maps to the Landing Zone "Finance" section):
+    1 view bills, 2 view balance, 3 fund transfer, 4 consolidated billing,
+    5 invoicing, 6 discount inheritance, 7 delegated payment.
+    Must include 1 and 2; pay_uin is required when 7 is included.
   EOT
   type        = list(number)
   default     = [1, 2, 4]
 
   validation {
     condition     = contains(var.member_permission_ids, 1) && contains(var.member_permission_ids, 2)
-    error_message = "member_permission_ids 必须包含 1(查账单) 和 2(查余额)"
+    error_message = "member_permission_ids must include 1 (view bills) and 2 (view balance)"
   }
 }
 
 variable "pay_uin" {
-  description = "代付账号 UIN，仅当 member_permission_ids 包含 7 时需要"
+  description = "Delegated payment account UIN; only required when member_permission_ids includes 7"
   type        = string
   default     = null
 }
 
 # =============================================================================
-# 防护规则（服务控制策略，可扩展：增删 map 项即可；裁剪：清空 map 或关开关）
+# Guardrails (Service Control Policies)
+# Extend: add/remove map entries; trim: empty the map or disable the flag
 # =============================================================================
 variable "guardrail_policies" {
   description = <<-EOT
-    防护规则（SCP）map，key 为策略名，bound_to 为要绑定的部门 key 列表
-    （必须是 departments 中的 key）。content 为 CAM 策略语法 JSON。
+    Guardrail (SCP) map. Map key is the policy name; bound_to lists department keys
+    to attach (must be departments keys). content is a CAM policy syntax JSON document.
   EOT
   type = map(object({
     description = string
@@ -177,7 +180,7 @@ variable "guardrail_policies" {
   }))
   default = {
     DenyOrganizationTampering = {
-      description = "禁止成员账号退出组织、增删改组织成员与部门结构，组织结构仅允许管理账号变更"
+      description = "Deny member accounts quitting the organization or mutating organization members/nodes; structure changes are reserved for the management account"
       bound_to    = ["core", "business", "sandbox"]
       content     = <<-EOT
       {
@@ -200,7 +203,7 @@ variable "guardrail_policies" {
       EOT
     }
     DenyDeleteSecurityResources = {
-      description = "禁止删除 CAM 身份、审计、日志与存储资源，保护安全合规资产"
+      description = "Deny deleting CAM identities, audit, logging and storage resources to protect security and compliance assets"
       bound_to    = ["business"]
       content     = <<-EOT
       {
@@ -228,7 +231,7 @@ variable "guardrail_policies" {
       EOT
     }
     DenyDeleteCoreNetwork = {
-      description = "禁止删除 VPC、子网、NAT 网关等核心网络资源"
+      description = "Deny deleting core network resources such as VPCs, subnets and NAT gateways"
       bound_to    = ["business"]
       content     = <<-EOT
       {
@@ -252,28 +255,29 @@ variable "guardrail_policies" {
 
   validation {
     condition     = alltrue([for name, p in var.guardrail_policies : can(jsondecode(p.content))])
-    error_message = "guardrail_policies 的 content 必须是合法 JSON"
+    error_message = "guardrail_policies content must be valid JSON"
   }
 
   validation {
     condition     = alltrue([for name, p in var.guardrail_policies : length(p.bound_to) > 0])
-    error_message = "guardrail_policies 的 bound_to 不能为空，至少绑定一个部门"
+    error_message = "guardrail_policies bound_to must not be empty; attach to at least one department"
   }
 }
 
 # =============================================================================
-# 账号工厂基线（可扩展：增删列表项即可；裁剪：清空列表或关开关）
+# Account factory baselines
+# Extend: add/remove list entries; trim: empty the list or disable the flag
 # =============================================================================
 variable "baseline_name" {
-  description = "账号工厂基线名称，须唯一"
+  description = "Account factory baseline name; must be unique"
   type        = string
   default     = "default"
 }
 
 variable "baseline_config_items" {
   description = <<-EOT
-    账号工厂基线项列表（identifier + configuration JSON），按需增删。
-    identifier 可通过 data source tencentcloud_controlcenter_account_factory_baseline_items 查询。
+    Account factory baseline item list (identifier + configuration JSON); add or remove as needed.
+    Identifiers can be listed via data source tencentcloud_controlcenter_account_factory_baseline_items.
   EOT
   type = list(object({
     identifier    = string
@@ -306,4 +310,50 @@ variable "baseline_config_items" {
       EOT
     },
   ]
+}
+
+# =============================================================================
+# Central audit logging (maps to the Control Center "Compliance Audit" section)
+# Disabled by default: a CAM role must be pre-created once in the log archive
+# account; see logging.tf comments and README.
+# =============================================================================
+variable "enable_central_logging" {
+  description = "Whether to create an organization-wide CloudAudit track (track_for_all_members) delivering all member operation logs to a COS bucket in the log archive account"
+  type        = bool
+  default     = false
+}
+
+variable "log_archive_account_key" {
+  description = "Key of the log archive account in core_accounts (its UIN is used as the audit log storage account)"
+  type        = string
+  default     = "logging"
+}
+
+variable "log_archive_role_name" {
+  description = "Name of the CAM role pre-created in the log archive account; the management account assumes it to create/maintain the COS bucket"
+  type        = string
+  default     = "LandingZoneLogArchiveAccess"
+}
+
+variable "log_archive_appid" {
+  description = "APPID of the log archive account (COS bucket names require the -APPID suffix); required when enable_central_logging = true"
+  type        = string
+  default     = null
+}
+
+variable "audit_log_bucket_name" {
+  description = "Audit log COS bucket name (without the -APPID suffix, globally unique); required when enable_central_logging = true"
+  type        = string
+  default     = null
+
+  validation {
+    condition     = var.audit_log_bucket_name == null || can(regex("^[a-z0-9][a-z0-9-]{1,50}$", var.audit_log_bucket_name))
+    error_message = "audit_log_bucket_name may only contain lowercase letters, digits and hyphens (without the -APPID suffix)"
+  }
+}
+
+variable "audit_log_retention_days" {
+  description = "Audit log retention in days, expired objects are deleted by a COS lifecycle rule; 0 keeps logs forever"
+  type        = number
+  default     = 365
 }

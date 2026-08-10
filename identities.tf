@@ -1,34 +1,37 @@
 # =============================================================================
-# 身份与权限（权限集）
-# 对应控制中心 Landing Zone「身份与权限」配置：
-#   1) 身份（权限集）：预设或自定义的策略集合
-#   2) 成员策略：将身份绑定到成员账号
-#   3) 登录授权：管理账号以指定身份登录成员账号（统一成员访问）
+# Identities & permissions (permission sets)
+# Maps to the "Identities & Permissions" section of the Control Center
+# Landing Zone:
+#   1) Identities (permission sets): preset or custom policy collections
+#   2) Member policies: bind identities to member accounts
+#   3) Login authorization: management account logs in to member accounts
+#      with a given identity (unified member access)
 # =============================================================================
 
 # -----------------------------------------------------------------------------
-# 身份 1：组织管理员登录身份（预设 AdministratorAccess，CAM 预设策略 ID=1）
+# Identity 1: organization admin login identity (preset AdministratorAccess,
+# CAM preset policy ID = 1)
 # -----------------------------------------------------------------------------
 resource "tencentcloud_organization_org_identity" "admin_login" {
   identity_alias_name = "OrganizationAdmin"
-  description         = "组织管理员登录成员账号使用，预设 AdministratorAccess 权限"
+  description         = "Used by organization admins to log in to member accounts; preset AdministratorAccess"
 
   identity_policy {
-    policy_type = 2 # 2=预设策略
-    policy_id   = 1 # CAM 预设策略 ID，1=AdministratorAccess
+    policy_type = 2 # 2 = preset policy
+    policy_id   = 1 # CAM preset policy ID, 1 = AdministratorAccess
     policy_name = "AdministratorAccess"
   }
 }
 
 # -----------------------------------------------------------------------------
-# 身份 2：安全运维（自定义策略）
+# Identity 2: security operations (custom policy)
 # -----------------------------------------------------------------------------
 resource "tencentcloud_organization_org_identity" "security_ops" {
   identity_alias_name = "SecurityOps"
-  description         = "安全账号运维身份：安全产品 + 日志只读"
+  description         = "Security account operations identity: security products + log read access"
 
   identity_policy {
-    policy_type = 1 # 1=自定义策略
+    policy_type = 1 # 1 = custom policy
 
     policy_document = jsonencode({
       version = "2.0"
@@ -51,11 +54,12 @@ resource "tencentcloud_organization_org_identity" "security_ops" {
 }
 
 # -----------------------------------------------------------------------------
-# 身份 3：只读审计（自定义策略，避免依赖预设策略 ID）
+# Identity 3: read-only auditor (custom policy, avoids depending on preset
+# policy IDs)
 # -----------------------------------------------------------------------------
 resource "tencentcloud_organization_org_identity" "auditor" {
   identity_alias_name = "Auditor"
-  description         = "全员只读审计身份"
+  description         = "Organization-wide read-only audit identity"
 
   identity_policy {
     policy_type = 1
@@ -84,36 +88,38 @@ resource "tencentcloud_organization_org_identity" "auditor" {
 }
 
 # -----------------------------------------------------------------------------
-# 成员策略：将「安全运维」身份绑定到安全账号
+# Member policy: bind the SecurityOps identity to the security account
 # -----------------------------------------------------------------------------
 resource "tencentcloud_organization_org_member_policy_attachment" "security_ops" {
   member_uins = [tencentcloud_organization_org_member.core["security"].id]
   policy_name = "SecurityOpsPolicy"
   identity_id = tencentcloud_organization_org_identity.security_ops.id
-  description = "安全账号安全运维策略"
+  description = "Security operations policy for the security account"
 }
 
 # -----------------------------------------------------------------------------
-# 成员策略：将「只读审计」身份绑定到全部账号
-# 注意：member_uins 单次最多 10 个，账号较多时需拆分多个资源
-# 可裁剪：enable_auditor_policy = false 关闭
+# Member policy: bind the read-only auditor identity to all accounts.
+# member_uins accepts at most 10 UINs per call; locals.tf chunks the list so
+# larger account sets automatically produce multiple instances.
+# (count is kept on purpose: the auditor[0] address matches the first chunk,
+# so states created by older versions need no migration.)
+# Trim: set enable_auditor_policy = false
 # -----------------------------------------------------------------------------
 resource "tencentcloud_organization_org_member_policy_attachment" "auditor" {
-  count = var.enable_auditor_policy ? 1 : 0
+  count = var.enable_auditor_policy ? length(local.member_uin_chunks) : 0
 
-  member_uins = concat(
-    [for m in tencentcloud_organization_org_member.core : m.id],
-    [for m in tencentcloud_organization_org_member.business : m.id],
-  )
-  policy_name = "AuditorPolicy"
+  member_uins = local.member_uin_chunks[count.index]
+  policy_name = count.index == 0 ? "AuditorPolicy" : "AuditorPolicy-${count.index + 1}"
   identity_id = tencentcloud_organization_org_identity.auditor.id
-  description = "全员只读审计策略"
+  description = "Organization-wide read-only audit policy"
 }
 
 # -----------------------------------------------------------------------------
-# 登录授权：管理账号以「组织管理员」身份登录各业务账号
-# 可裁剪：enable_login_permission = false 关闭
-# 如需授权登录核心账号，将 for_each 改为 merge(core, business) 的并集
+# Login authorization: management account logs in to business accounts with
+# the OrganizationAdmin identity.
+# Trim: set enable_login_permission = false
+# To also authorize login to core accounts, switch for_each to the union of
+# core and business members.
 # -----------------------------------------------------------------------------
 resource "tencentcloud_organization_org_member_auth_identity_attachment" "admin_login" {
   for_each = var.enable_login_permission ? tencentcloud_organization_org_member.business : {}

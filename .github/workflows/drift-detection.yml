@@ -1,0 +1,50 @@
+name: drift-detection
+
+# Scheduled drift detection: runs terraform plan periodically and fails the
+# job when manual console operations have drifted the environment away from
+# the codified Landing Zone state, surfacing it via Actions notifications.
+# Prerequisites: configure the TENCENTCLOUD_SECRET_ID / TENCENTCLOUD_SECRET_KEY
+# secrets and commit the remote backend configuration (backend.tf.example ->
+# backend.tf).
+
+on:
+  schedule:
+    - cron: "23 2 * * 1" # Mondays 10:23 (UTC+8)
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  drift:
+    name: terraform plan (drift check)
+    runs-on: ubuntu-latest
+    env:
+      TENCENTCLOUD_SECRET_ID: ${{ secrets.TENCENTCLOUD_SECRET_ID }}
+      TENCENTCLOUD_SECRET_KEY: ${{ secrets.TENCENTCLOUD_SECRET_KEY }}
+      HAS_CREDENTIALS: ${{ secrets.TENCENTCLOUD_SECRET_ID != '' && secrets.TENCENTCLOUD_SECRET_KEY != '' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.9.8
+
+      - name: check credentials
+        if: env.HAS_CREDENTIALS != 'true'
+        run: echo "::notice::Tencent Cloud credentials not configured; skipping drift detection"
+
+      - name: terraform init
+        if: env.HAS_CREDENTIALS == 'true'
+        run: |
+          if [ -f backend.tf ]; then
+            terraform init -input=false
+          else
+            echo "::warning::backend.tf not found; running against an empty local state, results are not trustworthy. Commit the remote backend configuration."
+            terraform init -backend=false -input=false
+          fi
+
+      # -detailed-exitcode: exit 2 = changes present (drift) -> job fails and notifies
+      - name: terraform plan
+        if: env.HAS_CREDENTIALS == 'true'
+        run: terraform plan -detailed-exitcode -input=false -no-color

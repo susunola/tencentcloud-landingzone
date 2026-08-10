@@ -1,45 +1,57 @@
 # =============================================================================
-# 腾讯云凭证
-# 生产环境建议使用环境变量注入，勿将密钥提交到 git：
+# Tencent Cloud credentials
+# In production, inject credentials via environment variables instead of
+# committing secrets to git:
 #   export TENCENTCLOUD_SECRET_ID=AKIDxxxxxxxx
 #   export TENCENTCLOUD_SECRET_KEY=xxxxxxxx
-# 如需在 tfvars 中显式配置，取消下面两行注释
+# To configure them explicitly in tfvars, uncomment the two lines below
 # =============================================================================
 # tencentcloud_secret_id  = "AKIDxxxxxxxxxxxxxxxxxxxxxxxx"
 # tencentcloud_secret_key = "xxxxxxxxxxxxxxxxxxxxxxxx"
 
 region = "ap-guangzhou"
 
-root_node_name = "集团根账号"
+root_node_name = "Root"
 
-# --- 模块开关（裁剪：置 false 即整体跳过该模块）---
-# enable_guardrails       = true   # 防护规则（SCP）
-# enable_baselines        = true   # 账号工厂基线
-# enable_login_permission = true   # 管理账号登录业务账号
-# enable_auditor_policy   = true   # 全员只读审计绑定
+# --- Feature flags (trim: set to false to skip the whole module) ---
+# enable_guardrails       = true   # Guardrails (SCP)
+# enable_baselines        = true   # Account factory baselines
+# enable_login_permission = true   # Management account login to business accounts
+# enable_auditor_policy   = true   # Organization-wide read-only audit binding
 
-# --- 业务账号（key 唯一；department 必须是 departments 中的 key）---
+# --- Business accounts (unique keys; department must be a departments key,
+#     sub-departments included) ---
 business_accounts = {
   "app-prod" = {
-    name       = "应用A-生产"
-    remark     = "生产环境业务账号"
+    name       = "AppA-Production"
+    remark     = "Production business account"
     department = "business"
   }
   "dev-test" = {
-    name       = "开发测试"
-    remark     = "沙箱测试账号"
+    name       = "DevTest"
+    remark     = "Sandbox test account"
     department = "sandbox"
   }
 }
 
-# --- 财务（如需管理账号代付，将 7 加入 permission_ids 并设置 pay_uin）---
+# --- Nested departments example (optional; parent points to another
+#     department key, up to 3 levels: root -> L1 -> L2 -> L3) ---
+# departments = [
+#   { key = "core",     name = "Core",     remark = "Hosts security, logging and finance core accounts" },
+#   { key = "business", name = "Business", remark = "All business accounts" },
+#   { key = "prod",     name = "Prod",     remark = "Production",  parent = "business" },
+#   { key = "proj-x",   name = "ProjectX", remark = "Key project", parent = "prod" },
+#   { key = "sandbox",  name = "Sandbox",  remark = "Test and experiment accounts" },
+# ]
+
+# --- Finance (for delegated payment, add 7 to permission_ids and set pay_uin) ---
 # member_permission_ids = [1, 2, 4]
 # pay_uin               = "10000xxxxxx"
 
-# --- 防护规则（扩展：直接增删 map 项；bound_to 为绑定的部门 key）---
+# --- Guardrails (extend: add/remove map entries; bound_to lists department keys) ---
 # guardrail_policies = {
 #   DenyDeleteSecurityResources = {
-#     description = "禁止删除安全合规资源"
+#     description = "Deny deleting security and compliance resources"
 #     bound_to    = ["business"]
 #     content     = <<-EOT
 #     {
@@ -56,7 +68,7 @@ business_accounts = {
 #   }
 # }
 
-# --- 账号工厂基线（扩展：直接增删列表项）---
+# --- Account factory baselines (extend: add/remove list entries) ---
 # baseline_config_items = [
 #   {
 #     identifier = "TCC-AF_PRESET_TAG"
@@ -69,3 +81,12 @@ business_accounts = {
 #     EOT
 #   }
 # ]
+
+# --- Central audit logging (optional; prerequisites in README "Central Audit
+#     Logging" section) ---
+# enable_central_logging   = true
+# audit_log_bucket_name    = "my-org-audit-logs"   # without the -APPID suffix
+# log_archive_appid        = "1300xxxxxx"
+# log_archive_account_key  = "logging"             # core_accounts key of the log archive account
+# log_archive_role_name    = "LandingZoneLogArchiveAccess"
+# audit_log_retention_days = 365                   # 0 = keep forever
