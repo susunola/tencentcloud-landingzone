@@ -1,0 +1,174 @@
+<p align="center">
+  <a href="README.md">English</a> &nbsp;|&nbsp;
+  <b>简体中文</b>
+</p>
+
+# tencentcloud-landingzone
+
+基于腾讯云控制中心（Control Center，产品文档 [1220/57785](https://intl.cloud.tencent.com/zh/document/product/1220/57785)）Landing Zone 最佳实践，用 Terraform 将多账号云环境的**组织架构、核心账号、财务、身份权限、防护规则、账号基线**一次性落地，可版本化、可审计、可重复执行。
+
+## 架构
+
+```
+                    ┌──────────────────────────────┐
+                    │  管理账号（执行 terraform）    │
+                    └──────────────┬───────────────┘
+                                   │ 开通组织服务
+                    ┌──────────────▼───────────────┐
+                    │ 集团账号管理（Organization）   │
+                    └──────────────┬───────────────┘
+                                   │
+        ┌──────────────┬───────────┴───────────┬──────────────┐
+        │              │                       │              │
+   ┌────▼────┐   ┌─────▼─────┐          ┌──────▼─────┐   ┌────▼─────┐
+   │核心账号  │   │ 业务部门   │          │  沙箱环境   │   │ 防护规则  │
+   │ 安全/日志│   │ 生产业务   │          │  测试实验   │   │ (SCP)    │
+   │ 财务     │   │ 账号      │          │  账号      │   │ 绑定部门  │
+   └────┬────┘   └─────┬─────┘          └──────┬─────┘   └──────────┘
+        │              │                       │
+        └──────┬───────┴───────────┬───────────┘
+               │                   │
+        ┌──────▼──────┐    ┌───────▼────────┐
+        │ 身份与权限    │    │  账号工厂基线    │
+        │ 权限集/成员   │    │  标签/VPC/联系人 │
+        │ 策略/登录授权 │    │  批量应用到账号   │
+        └─────────────┘    └────────────────┘
+```
+
+## 配置映射
+
+对应控制中心 Landing Zone 的 8 项配置：
+
+| 控制中心配置 | 本仓库实现 | Terraform 资源 |
+|---|---|---|
+| 部门 | `organization.tf` | `tencentcloud_organization_org_node` |
+| 核心账号 | `organization.tf` | `tencentcloud_organization_org_member` |
+| 账号创建/邀请 | `organization.tf` | `tencentcloud_organization_org_member` |
+| 财务 | `organization.tf` + `variables.tf` | 财务权限 `permission_ids`、代付 `pay_uin` |
+| 身份与权限 | `identities.tf` | `org_identity` / `org_member_policy_attachment` / `org_member_auth_identity_attachment` |
+| 防护规则 | `guardrails.tf` | `org_manage_policy` + `org_manage_policy_target` |
+| 基线管理 | `baselines.tf` | `controlcenter_account_factory_baseline_config` + `batch_apply_account_baselines` |
+| 合规审计（日志投递） | 见下方说明 | 日志账号中配置 CloudAudit / Config 投递 |
+
+> 合规审计日志投递（云审计/配置审计日志投递到 COS）需要在日志账号内开通对应服务，可通过控制台或 `tencentcloud_audit` 等资源在日志账号中配置，本仓库在日志账号中预留承载。
+
+## 文件说明
+
+| 文件 | 说明 |
+|---|---|
+| `main.tf` | Provider 配置、开通组织服务 |
+| `organization.tf` | 部门（组织单元）、核心账号、业务/沙箱账号、财务权限 |
+| `identities.tf` | 身份（权限集）、成员策略绑定、登录授权 |
+| `guardrails.tf` | 防护规则（服务控制策略）创建与绑定 |
+| `baselines.tf` | 账号工厂基线配置与批量应用 |
+| `variables.tf` / `outputs.tf` | 输入变量与输出 |
+| `terraform.tfvars.example` | 变量示例 |
+| `scripts/validate-config.py` | 配置预检：apply 前校验 tfvars 引用一致性 |
+| `.github/workflows/terraform-ci.yml` | CI：fmt + validate + 预检 + 可选 plan |
+
+## 前置条件
+
+- 管理账号已完成**企业实名认证**（控制中心仅支持企业账号，个人账号不支持）
+- 本地安装 [Terraform](https://developer.hashicorp.com/terraform/downloads) ≥ 1.3
+- 配置腾讯云 API 凭证（二选一）：
+  - 环境变量：`export TENCENTCLOUD_SECRET_ID=... TENCENTCLOUD_SECRET_KEY=...`
+  - `terraform.tfvars`：复制 `terraform.tfvars.example` 并填写
+- 运行预检脚本需 `python3` + `python-hcl2`：`pip install python-hcl2`（CI 已自动安装）
+
+## 快速开始
+
+```bash
+cp terraform.tfvars.example terraform.tfvars   # 按需修改
+terraform init
+terraform plan                                 # 确认变更
+terraform apply
+```
+
+首次 `apply` 会依次：开通组织 → 创建部门 → 创建核心/业务账号 → 创建身份并绑定 → 开启 SCP 并绑定 → 配置基线并批量应用。
+
+## 默认账号结构
+
+```
+集团根账号（管理账号）
+├── 核心账号
+│   ├── 安全账号     # 集中部署安全产品
+│   ├── 日志账号     # 集中收集审计日志
+│   └── 财务账号     # 财务对账与成本分析
+├── 业务部门
+│   └── 应用A-生产
+└── 沙箱环境
+    └── 开发测试
+```
+
+按需修改 `variables.tf` 中的 `departments` / `core_accounts` / `business_accounts` 即可调整结构。
+
+## 扩展与裁剪
+
+数据驱动 + 模块开关设计。**改 `terraform.tfvars` 即可完成扩展与裁剪，无需改代码**：
+
+| 需求 | 做法 |
+|---|---|
+| 整体裁剪某个模块 | `enable_guardrails` / `enable_baselines` / `enable_login_permission` / `enable_auditor_policy` 置 `false` |
+| 增删部门 / 账号 | 改 `departments` / `core_accounts` / `business_accounts` |
+| 增删防护规则（SCP） | 改 `guardrail_policies` map（含绑定目标 `bound_to`） |
+| 增删基线项 | 改 `baseline_config_items` 列表 |
+| 调整财务权限 / 代付 | 改 `member_permission_ids` / `pay_uin` |
+| 增删身份（权限集） | 复制/删除 `identities.tf` 中的身份资源块及对应绑定 |
+
+极端裁剪示例（仅组织 + 账号，不启用任何治理模块）：
+
+```hcl
+enable_guardrails       = false
+enable_baselines        = false
+enable_login_permission = false
+enable_auditor_policy   = false
+```
+
+## 分阶段部署
+
+首次落地建议按依赖顺序分阶段 apply，降低单次变更面、便于逐段验证：
+
+| 阶段 | 内容 | 命令 |
+|---|---|---|
+| 1 组织与账号 | 开通组织、部门、核心/业务账号 | `terraform apply -target=tencentcloud_organization_instance.this -target=tencentcloud_organization_org_node.this -target=tencentcloud_organization_org_member.core -target=tencentcloud_organization_org_member.business` |
+| 2 身份与防护 | 身份（权限集）、成员策略、登录授权、SCP | `terraform apply -target=tencentcloud_organization_org_identity.* -target=tencentcloud_organization_org_member_policy_attachment.* -target=tencentcloud_organization_org_member_auth_identity_attachment.* -target=tencentcloud_organization_org_manage_policy.*` |
+| 3 基线 | 账号工厂基线配置 + 批量应用 | `terraform apply -target=tencentcloud_controlcenter_account_factory_baseline_config.default -target=tencentcloud_batch_apply_account_baselines.all` |
+| 4 收尾 | 全量核对，补遗漏 | `terraform apply` |
+
+> 每个阶段结束后 `terraform plan` 检查无意外变更再进入下一阶段。账号较多时建议先用 `-target` 试点 1-2 个业务账号验证基线效果，再全量 apply。
+
+## 持续治理
+
+- **CI 校验**：`.github/workflows/terraform-ci.yml` 在 PR / push 时自动执行 `fmt -check`、`validate`、配置预检；在仓库 Settings → Secrets 配置 `TENCENTCLOUD_SECRET_ID` / `TENCENTCLOUD_SECRET_KEY` 后，plan 步骤自动启用（不配置则跳过）。
+- **漂移检测**：Landing Zone 的合规性会随控制台人工操作漂移（如手工改了部门、绑定了策略）。建议定期执行 `terraform plan` 并与 CI 对比，发现 drift 后 `terraform apply` 收敛。
+- **预检脚本**：apply 前先跑 `python3 scripts/validate-config.py`，快速发现部门引用、财务权限、绑定目标等配置错误，避免 plan 到中途才报错。
+
+## 基线项说明
+
+`baselines.tf` 由 `var.baseline_config_items` 驱动，默认包含两个账号工厂基线项（可增删）：
+
+- `TCC-AF_PRESET_TAG`：预设标签基线，给所有账号统一打管理标签
+- `TCC-AF_VPC_SUBNET`：VPC/子网基线，为账号创建默认网络
+
+可用基线项及其配置结构可通过控制台或如下 data source 查询：
+
+```hcl
+data "tencentcloud_controlcenter_account_factory_baseline_items" "all" {}
+```
+
+其他常见基线项：`TCC-AF_SHARE_IMAGE`（共享镜像）、`ACS-BP_ACCOUNT_FACTORY_ACCOUNT_CONTACT`（账号联系人）。
+
+## 注意事项
+
+- **SCP 只定义权限边界，不授予权限**：成员账号的最终权限 = 组织 SCP ∩ 账号内 CAM 权限，仍需在账号内配置 CAM。
+- **SCP 启用后默认绑定系统策略 FullQcloudAccess**（全放行），本仓库在此基础上追加 Deny 规则，安全可控。
+- **成员策略绑定**（`org_member_policy_attachment`）的 `member_uins` 单次最多 10 个，账号多时请拆分。
+- **登录授权**（`org_member_auth_identity_attachment`）单账号最多绑定 5 个身份。
+- **删除成员账号**：删除由 Terraform 创建的成员时，如需连带注销腾讯云账号，给资源加 `force_delete_account = true`。
+- **邀请已有账号**：邀请型账号需对方同意，请在控制中心完成邀请；本仓库创建的是新账号。
+- **代付**：`member_permission_ids` 包含 `7`（代付）时必须设置 `pay_uin`。
+- 组织/控制中心为全局服务，`region` 仅用于基线中的地域性资源。
+
+## Provider 版本
+
+控制中心（Control Center）账号工厂基线资源自 tencentcloud provider v1.82.44 提供，`versions.tf` 已要求 `>= 1.82.50`。

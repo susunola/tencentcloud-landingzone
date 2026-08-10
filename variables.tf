@@ -19,6 +19,11 @@ variable "region" {
   description = "腾讯云地域，组织/控制中心为全局服务，此参数用于创建地域性资源（如基线 VPC）"
   type        = string
   default     = "ap-guangzhou"
+
+  validation {
+    condition     = can(regex("^[a-z]+-[a-z]+$", var.region))
+    error_message = "region 必须是形如 ap-guangzhou 的地域标识"
+  }
 }
 
 variable "root_node_name" {
@@ -70,17 +75,25 @@ variable "departments" {
   description = <<-EOT
     部门（组织单元）列表，key 用作资源标识，name 为部门显示名称。
     对应控制中心 Landing Zone 的「部门」配置。
+    parent 可选：指向另一个部门的 key 即创建为子部门（最多 3 层：根 → L1 → L2 → L3），
+    缺省（null）挂在组织根节点下。
   EOT
   type = list(object({
     key    = string
     name   = string
     remark = string
+    parent = optional(string, null)
   }))
   default = [
     { key = "core", name = "核心账号", remark = "承载安全、日志、财务等核心账号" },
     { key = "business", name = "业务部门", remark = "生产业务账号" },
     { key = "sandbox", name = "沙箱环境", remark = "测试与实验账号，禁止承载生产业务" },
   ]
+
+  validation {
+    condition     = length(var.departments) == length(distinct([for d in var.departments : d.key]))
+    error_message = "departments 的 key 必须唯一"
+  }
 }
 
 variable "core_accounts" {
@@ -136,6 +149,11 @@ variable "member_permission_ids" {
   EOT
   type        = list(number)
   default     = [1, 2, 4]
+
+  validation {
+    condition     = contains(var.member_permission_ids, 1) && contains(var.member_permission_ids, 2)
+    error_message = "member_permission_ids 必须包含 1(查账单) 和 2(查余额)"
+  }
 }
 
 variable "pay_uin" {
@@ -158,6 +176,29 @@ variable "guardrail_policies" {
     bound_to    = list(string)
   }))
   default = {
+    DenyOrganizationTampering = {
+      description = "禁止成员账号退出组织、增删改组织成员与部门结构，组织结构仅允许管理账号变更"
+      bound_to    = ["core", "business", "sandbox"]
+      content     = <<-EOT
+      {
+        "version": "2.0",
+        "statement": [
+          {
+            "effect": "deny",
+            "action": [
+              "organization:QuitOrganization",
+              "organization:DeleteOrganizationMembers",
+              "organization:DeleteOrganizationNodes",
+              "organization:MoveOrganizationNode",
+              "organization:UpdateOrganizationNode",
+              "organization:UpdateOrganizationMembers"
+            ],
+            "resource": ["*"]
+          }
+        ]
+      }
+      EOT
+    }
     DenyDeleteSecurityResources = {
       description = "禁止删除 CAM 身份、审计、日志与存储资源，保护安全合规资产"
       bound_to    = ["business"]
@@ -173,6 +214,8 @@ variable "guardrail_policies" {
               "cam:DeletePolicy",
               "cloudaudit:DeleteAudit",
               "cloudaudit:StopLogging",
+              "cloudaudit:DeleteAuditTrack",
+              "cloudaudit:ModifyAuditTrack",
               "config:DeleteConfigRule",
               "cls:DeleteLogset",
               "cls:DeleteTopic",
@@ -205,6 +248,16 @@ variable "guardrail_policies" {
       }
       EOT
     }
+  }
+
+  validation {
+    condition     = alltrue([for name, p in var.guardrail_policies : can(jsondecode(p.content))])
+    error_message = "guardrail_policies 的 content 必须是合法 JSON"
+  }
+
+  validation {
+    condition     = alltrue([for name, p in var.guardrail_policies : length(p.bound_to) > 0])
+    error_message = "guardrail_policies 的 bound_to 不能为空，至少绑定一个部门"
   }
 }
 
