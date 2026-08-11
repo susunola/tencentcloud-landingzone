@@ -28,7 +28,7 @@ jobs:
         with:
           terraform_version: ${{ env.TF_VERSION }}
 
-      - uses: terraform-linters/setup-tflint@v4
+      - uses: terraform-linters/setup-tflint@v6
 
       - name: Setup python dependencies
         run: pip install python-hcl2 pytest
