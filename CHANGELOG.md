@@ -5,6 +5,37 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **Config validation now actually blocks bad plans.** The five config-consistency
+  rules (department nesting/resolvability, account `department` references, guardrail
+  `bound_to` references, `pay_uin` for delegated payment, central-logging
+  prerequisites) moved from `checks.tf` into `variables.tf` `validation` blocks.
+  Terraform `check` blocks only emit a *warning* and never block plan/apply, so the
+  old placement let a misconfigured department silently disappear from the plan.
+  `required_version` raised to `>= 1.9` (variable validations can now reference other
+  variables).
+- `checks.tf` now holds post-deploy runtime assertions (the only correct use of
+  `check` blocks) and documents that they do not block operations.
+- The `tencentcloud.log_archive` provider alias now uses a sentinel UIN in the
+  assume-role ARN when central logging is disabled, so the role ARN stays
+  well-formed (it is never actually configured while the module is not
+  instantiated). Avoids a malformed empty-UIN ARN in the disabled state.
+- `region` validation now accepts real 3-segment regions (e.g. `ap-shanghai-fsi`,
+  `na-ashburn`) instead of rejecting them.
+- `audit_log_retention_days` validation now rejects negative values.
+- `locals.tf` sorts member UINs before chunking so batch policy attachment and
+  baseline application stay deterministic when accounts are added or removed.
+- `SecurityOps` identity narrowed to read-only on `cvm`/`vpc`/`cls` (was `*:*`),
+  removing the contradiction with the `DenyDeleteCoreNetwork` SCP.
+
+### Changed
+
+- CI security scan pins `aquasecurity/trivy-action@v0.36.0` (was `@master`) and
+  `checkov==3.3.10` instead of an unpinned install.
+
 ## [0.1.0] - 2026-08-10
 
 Initial public release.

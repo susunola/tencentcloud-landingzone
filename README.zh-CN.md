@@ -59,7 +59,7 @@
 | `baselines.tf` | 账号工厂基线配置与批量应用 |
 | `logging.tf` | 集中审计日志（可选）：日志账号 provider alias + 审计日志模块 |
 | `locals.tf` | 共享 locals：成员账号集合与 UIN 分批（单次上限 10 个） |
-| `checks.tf` | Terraform 原生 check 块：plan 阶段即校验配置引用一致性 |
+| `checks.tf` | 部署后运行时断言（仅警告；配置校验已移至 `variables.tf`） |
 | `modules/audit-logging/` | 审计日志模块：日志账号 COS 桶 + 组织级云审计跟踪 |
 | `examples/` | 可直接运行的场景化示例（`minimal` / `complete`） |
 | `scripts/tests/` | 预检脚本单元测试（pytest） |
@@ -88,7 +88,7 @@
 ```bash
 cp terraform.tfvars.example terraform.tfvars   # 按需修改
 terraform init
-terraform plan                                 # 确认变更（check 块会在此阶段报配置错误）
+terraform plan                                 # 确认变更（变量 validation 块会在 plan 阶段因配置错误而硬性失败）
 terraform apply
 ```
 
@@ -124,7 +124,7 @@ departments = [
 ```
 
 - 账号的 `department`、防护规则的 `bound_to` 可指向任意层级的部门 key。
-- parent 悬空、自引用、循环引用、超过 3 层会在 `terraform plan`（check 块）和预检脚本中同时报错。
+- parent 悬空、自引用、循环引用、超过 3 层会被 `variables.tf` 的变量 `validation` 块硬性拒绝（plan 阶段失败），并被预检脚本镜像校验。
 - 从旧版本升级：旧的平铺部门均视为 L1，资源地址不变（`org_node.this`），**state 无需迁移**。
 
 ## State 管理（远端 backend）
@@ -184,9 +184,9 @@ enable_auditor_policy   = false
 
 配置错误在 apply 之前拦截：
 
-1. **变量 `validation` 块**（`variables.tf`）：加载 tfvars 时即报错——region 格式、部门 key 唯一、财务权限必含 1/2、SCP content 必须是合法 JSON 等。
-2. **`check` 块**（`checks.tf`）：`terraform plan` 阶段报错——部门 parent 悬空/循环/超 3 层、账号部门引用、防护规则绑定目标、代付缺 pay_uin、审计日志缺桶名/APPID。
-3. **预检脚本**（`scripts/validate-config.py`）：脱离 Terraform 独立校验 tfvars，适合 CI 与快速检查（`make preflight`）。
+1. **变量 `validation` 块**（`variables.tf`）：plan 阶段硬性失败——region 格式、部门 key 唯一、部门嵌套可解析性、账号 `department` 引用、防护规则 `bound_to` 引用、财务权限必含 1/2、代付（7）需 `pay_uin`、审计日志前置条件，以及 SCP content 必须是合法 JSON。
+2. **预检脚本**（`scripts/validate-config.py`）：脱离 Terraform 独立校验 tfvars，适合 CI 与快速检查（`make preflight`），镜像上述变量校验规则。
+3. **`check` 块**（`checks.tf`）：部署后运行时断言。**它们仅产生警告、不会阻断 plan/apply**——Terraform 在资源创建后运行，用于暴露漂移或异常状态。配置校验不在此处，已归入第 1 层。
 
 ## 分阶段部署
 
@@ -209,7 +209,7 @@ enable_auditor_policy   = false
 
 ## 已知限制
 
-- 部门嵌套最多 **3 层**（根 → L1 → L2 → L3），更深的结构会被 check 块拒绝。
+- 部门嵌套最多 **3 层**（根 → L1 → L2 → L3），更深的结构会被 `variables.tf` 的变量校验拒绝。
 - 成员账号为**创建型**而非邀请型；邀请已有账号需对方在控制中心控制台确认。
 - 集中审计日志需要在日志账号中**一次性手工创建 CAM 角色**——组织 API 无法从管理账号代为创建；投递还要求桶授权云审计服务写入。
 - 安全扫描（checkov / trivy）为**建议性**：其规则集主要面向 AWS/Azure/GCP，对腾讯云资源覆盖有限。
@@ -248,12 +248,12 @@ data "tencentcloud_controlcenter_account_factory_baseline_items" "all" {}
 - **登录授权**（`org_member_auth_identity_attachment`）单账号最多绑定 5 个身份。
 - **删除成员账号**：删除由 Terraform 创建的成员时，如需连带注销腾讯云账号，给资源加 `force_delete_account = true`。
 - **邀请已有账号**：邀请型账号需对方同意，请在控制中心完成邀请；本仓库创建的是新账号。
-- **代付**：`member_permission_ids` 包含 `7`（代付）时必须设置 `pay_uin`（check 块会在 plan 时拦截）。
+- **代付**：`member_permission_ids` 包含 `7`（代付）时必须设置 `pay_uin`（变量 `validation` 块会在 plan 时硬性拦截）。
 - 组织/控制中心为全局服务，`region` 仅用于基线与审计日志等地域性资源。
 
 ## 版本要求
 
-- Terraform ≥ 1.5（`check` 块需要）
+- Terraform ≥ 1.9（变量 `validation` 块需引用其它变量；`check` 块需 ≥ 1.5）
 - tencentcloud provider ≥ 1.82.50（控制中心账号工厂基线资源自 v1.82.44 起提供）
 
 > 完整的模块参考（Requirements / Providers / Resources / Inputs / Outputs 表格）由 terraform-docs 自动生成，见英文 README 的 [Module Reference](README.md#module-reference) 一节。

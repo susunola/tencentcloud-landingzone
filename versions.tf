@@ -1,7 +1,8 @@
 terraform {
-  # >= 1.5: checks.tf uses check blocks; nested department optional attributes
-  # require >= 1.3
-  required_version = ">= 1.5"
+  # >= 1.9: variable validation blocks reference other variables (config
+  # consistency checks moved from checks.tf into variables.tf). Nested
+  # department optional attributes require >= 1.3.
+  required_version = ">= 1.9"
 
   required_providers {
     tencentcloud = {

@@ -33,6 +33,11 @@ resource "tencentcloud_organization_org_identity" "security_ops" {
   identity_policy {
     policy_type = 1 # 1 = custom policy
 
+    # Read/write on the security products (waf, yunjing, ssl). Compute and
+    # network are restricted to Describe* so this identity can inspect but not
+    # tear down VMs/VPCs — otherwise it would contradict the DenyDeleteCoreNetwork
+    # SCP and give a security identity broad delete rights if copied to an
+    # account without that SCP.
     policy_document = jsonencode({
       version = "2.0"
       statement = [
@@ -42,9 +47,9 @@ resource "tencentcloud_organization_org_identity" "security_ops" {
             "waf:*",
             "yunjing:*",
             "ssl:*",
-            "cls:*",
-            "cvm:*",
-            "vpc:*",
+            "cls:Describe*",
+            "cvm:Describe*",
+            "vpc:Describe*",
           ]
           resource = ["*"]
         }

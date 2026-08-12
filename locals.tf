@@ -13,11 +13,14 @@ locals {
   # Global tags = user tags + framework version
   common_tags = merge(var.tags, { LandingZoneVersion = local.landingzone_version })
 
-  # All member account UINs (core + business/sandbox)
-  all_member_uins = concat(
+  # All member account UINs (core + business/sandbox), sorted so chunking is
+  # deterministic. Without an explicit sort the order depends on iteration over
+  # resource maps; a stable order avoids reshuffling chunks (and thus needless
+  # re-application) when an account is added or removed.
+  all_member_uins = sort(concat(
     [for m in tencentcloud_organization_org_member.core : m.id],
     [for m in tencentcloud_organization_org_member.business : m.id],
-  )
+  ))
 
   # Chunk into batches of 10; more than 10 accounts automatically produce
   # multiple resource instances

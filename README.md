@@ -66,7 +66,7 @@ Maps to the 8 Control Center Landing Zone configuration areas:
 | `baselines.tf` | Account factory baseline configs and batch application |
 | `logging.tf` | Central audit logging (opt-in): log account provider alias + audit module |
 | `locals.tf` | Shared locals: member account set and UIN chunking (10 per call) |
-| `checks.tf` | Native check blocks: reference consistency fails at plan time |
+| `checks.tf` | Post-deploy runtime assertions (warnings only; config validation lives in `variables.tf`) |
 | `modules/audit-logging/` | Audit logging module: log archive COS bucket + organization-wide CloudAudit track |
 | `examples/` | Runnable scenario examples (`minimal` / `complete`) |
 | `scripts/tests/` | Preflight unit tests (pytest) |
@@ -95,7 +95,7 @@ Maps to the 8 Control Center Landing Zone configuration areas:
 ```bash
 cp terraform.tfvars.example terraform.tfvars   # Customize as needed
 terraform init
-terraform plan                                 # Review changes (check blocks report config errors here)
+terraform plan                                 # Review changes (variable validation blocks fail the plan on config errors)
 terraform apply
 ```
 
@@ -131,7 +131,7 @@ departments = [
 ```
 
 - Account `department` and guardrail `bound_to` may reference departments at any level.
-- Dangling parents, self-references, cycles and nesting deeper than 3 levels are reported by both the plan-time check blocks and the preflight script.
+- Dangling parents, self-references, cycles and nesting deeper than 3 levels are rejected by the variable `validation` blocks in `variables.tf` (hard-fail at plan) and mirrored by the preflight script.
 - Upgrading from older versions: flat departments are treated as L1 and resource addresses are unchanged (`org_node.this`), so **no state migration is needed**.
 
 ## State Management (Remote Backend)
@@ -191,9 +191,9 @@ enable_auditor_policy   = false
 
 Configuration errors are caught before apply:
 
-1. **Variable `validation` blocks** (`variables.tf`): fail at tfvars load time — region format, unique department keys, finance permissions including 1/2, guardrail content must be valid JSON, etc.
-2. **`check` blocks** (`checks.tf`): fail at `terraform plan` — dangling/cyclic/too-deep department parents, account department references, guardrail attachment targets, missing `pay_uin`, missing audit logging bucket/APPID.
-3. **Preflight script** (`scripts/validate-config.py`): standalone tfvars validation without Terraform, ideal for CI and quick local checks (`make preflight`).
+1. **Variable `validation` blocks** (`variables.tf`): hard-fail at plan time — region format, unique department keys, department nesting/resolvability, account `department` references, guardrail `bound_to` references, finance permissions including 1/2, `pay_uin` required when delegated payment (7) is set, central-logging prerequisites, and guardrail content must be valid JSON.
+2. **Preflight script** (`scripts/validate-config.py`): standalone tfvars validation without Terraform, ideal for CI and quick local checks (`make preflight`). It mirrors the variable validation rules above.
+3. **`check` blocks** (`checks.tf`): post-deploy runtime assertions. **These are warnings only and do NOT block plan/apply** — Terraform runs them after resources are created and surfaces drift or unexpected state. They are intentionally not used for config validation, which lives in layer 1.
 
 ## Phased Deployment
 
@@ -216,11 +216,12 @@ For first-time deployment, apply in dependency order to reduce blast radius and 
 
 ## Known Limitations
 
-- Department nesting is capped at **3 levels** (root → L1 → L2 → L3); deeper structures are rejected by the check blocks.
+- Department nesting is capped at **3 levels** (root → L1 → L2 → L3); deeper structures are rejected by the variable validation blocks in `variables.tf`.
 - Member accounts are **created**, not invited. Inviting existing accounts requires the invitee's confirmation in the Control Center console.
 - Central audit logging needs a **one-time manual CAM role** in the log archive account — no organization API can create it from the management account. The bucket must also authorize the CloudAudit service to write.
 - The security scans (checkov / trivy) are **advisory**: their rulesets primarily target AWS/Azure/GCP and cover Tencent Cloud resources only partially.
 - CI authentication uses long-lived credentials from repository Secrets; an OIDC-based bootstrap stage is on the [roadmap](ROADMAP.md).
+- Account UINs are chunked into batches of 10 for policy attachment and baseline application (`count`-based, not `for_each`, to preserve old state addresses). Removing an account can reshuffle which UINs land in which chunk, so Terraform may re-apply the affected batches to unrelated accounts. UINs are sorted for determinism; for fully stable addressing, switch to `for_each` with a state migration (see [roadmap](ROADMAP.md)).
 
 ## Default Guardrails (SCP)
 
@@ -260,7 +261,7 @@ Other common baseline items: `TCC-AF_SHARE_IMAGE` (shared image), `ACS-BP_ACCOUN
 
 ## Version Requirements
 
-- Terraform ≥ 1.5 (check blocks)
+- Terraform ≥ 1.9 (variable validation blocks reference other variables; check blocks also require ≥ 1.5)
 - tencentcloud provider ≥ 1.82.50 (account factory baseline resources are available since v1.82.44)
 
 ## Module Reference

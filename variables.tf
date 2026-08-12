@@ -21,8 +21,10 @@ variable "region" {
   default     = "ap-guangzhou"
 
   validation {
-    condition     = can(regex("^[a-z]+-[a-z]+$", var.region))
-    error_message = "region must be a region identifier like ap-guangzhou"
+    # Allow an optional third segment so real regions like ap-shanghai-fsi and
+    # na-ashburn are accepted (the previous pattern rejected them).
+    condition     = can(regex("^[a-z]{2}-[a-z]+(-[a-z]+)?$", var.region))
+    error_message = "region must be a region identifier like ap-guangzhou or ap-shanghai-fsi"
   }
 }
 
@@ -94,6 +96,29 @@ variable "departments" {
     condition     = length(var.departments) == length(distinct([for d in var.departments : d.key]))
     error_message = "departments keys must be unique"
   }
+
+  # Hard-fail at plan time (moved from checks.tf): every department's parent
+  # must reference an existing department key. This rejects dangling parents,
+  # self-references, cycles, and nesting deeper than 3 levels (root -> L1 ->
+  # L2 -> L3). Implemented as a variable validation so a misconfigured
+  # department cannot silently disappear from the plan.
+  #
+  # Resolution is L1 (parent == null) -> L2 (parent equals an L1 key) -> L3
+  # (parent equals an L2 key). `contains` rejects null arguments, so all
+  # membership tests use equality (`==`) which is null-safe instead of contains.
+  validation {
+    condition = alltrue([
+      for d in var.departments :
+      d.parent == null
+      || length([
+        for k in concat(
+          [for x in var.departments : x.key if x.parent == null],
+          [for x in var.departments : x.key if length([for y in var.departments : y.key if y.parent == null && y.key == x.parent]) > 0],
+        ) : k if k == d.parent
+      ]) > 0
+    ])
+    error_message = "Every department's parent must reference an existing department key. Dangling parents, self-references, cycles, or nesting deeper than 3 levels (root -> L1 -> L2 -> L3) are rejected."
+  }
 }
 
 variable "core_accounts" {
@@ -113,6 +138,11 @@ variable "core_accounts" {
     { key = "logging", name = "Logging", department = "core", remark = "Centralized collection of operation audit and config audit logs" },
     { key = "finance", name = "Finance", department = "core", remark = "Finance reconciliation and cost analysis" },
   ]
+
+  validation {
+    condition     = alltrue([for a in var.core_accounts : contains([for d in var.departments : d.key], a.department)])
+    error_message = "core_accounts[*].department must reference a key defined in var.departments"
+  }
 }
 
 variable "business_accounts" {
@@ -137,6 +167,11 @@ variable "business_accounts" {
       department = "sandbox"
     }
   }
+
+  validation {
+    condition     = alltrue([for k, a in var.business_accounts : contains([for d in var.departments : d.key], a.department)])
+    error_message = "business_accounts[*].department must reference a key defined in var.departments"
+  }
 }
 
 # =============================================================================
@@ -155,6 +190,11 @@ variable "member_permission_ids" {
   validation {
     condition     = contains(var.member_permission_ids, 1) && contains(var.member_permission_ids, 2)
     error_message = "member_permission_ids must include 1 (view bills) and 2 (view balance)"
+  }
+
+  validation {
+    condition     = !contains(var.member_permission_ids, 7) || var.pay_uin != null
+    error_message = "pay_uin must be set when member_permission_ids includes 7 (delegated payment)"
   }
 }
 
@@ -262,6 +302,11 @@ variable "guardrail_policies" {
     condition     = alltrue([for name, p in var.guardrail_policies : length(p.bound_to) > 0])
     error_message = "guardrail_policies bound_to must not be empty; attach to at least one department"
   }
+
+  validation {
+    condition     = alltrue(flatten([for name, p in var.guardrail_policies : [for t in p.bound_to : contains([for d in var.departments : d.key], t)]]))
+    error_message = "guardrail_policies[*].bound_to must list department keys defined in var.departments"
+  }
 }
 
 # =============================================================================
@@ -321,6 +366,11 @@ variable "enable_central_logging" {
   description = "Whether to create an organization-wide CloudAudit track (track_for_all_members) delivering all member operation logs to a COS bucket in the log archive account"
   type        = bool
   default     = false
+
+  validation {
+    condition     = !var.enable_central_logging || (var.audit_log_bucket_name != null && var.log_archive_appid != null)
+    error_message = "audit_log_bucket_name and log_archive_appid must be set when enable_central_logging = true"
+  }
 }
 
 variable "log_archive_account_key" {
@@ -356,4 +406,9 @@ variable "audit_log_retention_days" {
   description = "Audit log retention in days, expired objects are deleted by a COS lifecycle rule; 0 keeps logs forever"
   type        = number
   default     = 365
+
+  validation {
+    condition     = var.audit_log_retention_days >= 0
+    error_message = "audit_log_retention_days must be >= 0 (0 keeps logs forever)"
+  }
 }
